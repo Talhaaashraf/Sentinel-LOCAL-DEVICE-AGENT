@@ -16,19 +16,28 @@ import requests
 
 try:
     from security_checks import collect_security_report
+    from performance_checks import collect_performance_report
+    from event_logs import collect_event_log_report
 except ImportError:
     from .security_checks import collect_security_report
+    from .performance_checks import collect_performance_report
+    from .event_logs import collect_event_log_report
 
 AGENT_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 CONFIG_PATH = AGENT_DIR / "agent_config.json"
 LOG_PATH = AGENT_DIR / "agent_log.txt"
 DEFAULT_INTERVAL = 10
 SECURITY_REFRESH_SECONDS = 300
+EVENT_LOG_REFRESH_SECONDS = 600
+DEFAULT_PERFORMANCE_INTERVAL_SECONDS = 1800
 logging.basicConfig(filename=LOG_PATH, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 _security_cache = {"data": None, "checked_at": 0}
+_performance_cache = {"data": None, "checked_at": 0}
+_event_log_cache = {"data": None, "checked_at": 0}
 
 
 def get_security():
+    """Refresh security posture on a fixed slow cadence; every check here is read-only."""
     now = time.time()
     if _security_cache["data"] is None or now - _security_cache["checked_at"] > SECURITY_REFRESH_SECONDS:
         try:
@@ -40,6 +49,40 @@ def get_security():
     return _security_cache["data"]
 
 
+def get_event_logs():
+    """Refresh recent OS event log entries on a fixed slow cadence; read-only."""
+    now = time.time()
+    if _event_log_cache["data"] is None or now - _event_log_cache["checked_at"] > EVENT_LOG_REFRESH_SECONDS:
+        try:
+            _event_log_cache["data"] = collect_event_log_report()
+        except Exception:
+            logging.exception("Event log check failed")
+            _event_log_cache["data"] = _event_log_cache["data"] or {}
+        _event_log_cache["checked_at"] = now
+    return _event_log_cache["data"]
+
+
+def get_performance(config):
+    """Refresh the active benchmark suite on a configurable cadence.
+
+    Unlike get_security(), this briefly writes to disk and burns CPU, so it is
+    opt-out (enable_performance_benchmark: false in agent_config.json) and
+    defaults to a much longer interval than the report cycle itself.
+    """
+    if not config.get("enable_performance_benchmark", True):
+        return None
+    interval = max(300, int(config.get("performance_interval_seconds", DEFAULT_PERFORMANCE_INTERVAL_SECONDS)))
+    now = time.time()
+    if _performance_cache["data"] is None or now - _performance_cache["checked_at"] > interval:
+        try:
+            _performance_cache["data"] = collect_performance_report()
+        except Exception:
+            logging.exception("Performance benchmark failed")
+            _performance_cache["data"] = _performance_cache["data"] or {}
+        _performance_cache["checked_at"] = now
+    return _performance_cache["data"]
+
+
 def human_size(value):
     size = float(value or 0)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -49,7 +92,7 @@ def human_size(value):
     return f"{size:.2f} TB"
 
 
-def collect_report():
+def collect_report(config):
     frequency = psutil.cpu_freq()
     per_core = psutil.cpu_percent(interval=0.15, percpu=True)
     memory, swap = psutil.virtual_memory(), psutil.swap_memory()
@@ -78,7 +121,7 @@ def collect_report():
             processes.append({"pid": info["pid"], "name": info.get("name") or "Unknown", "cpu_percent": round(info.get("cpu_percent") or 0, 2), "memory_percent": round(info.get("memory_percent") or 0, 2)})
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-    return {"system": {"os_name": platform.system(), "os_version": platform.version(), "os_release": platform.release(), "architecture": platform.machine(), "processor": platform.processor() or "Unknown", "hostname": socket.gethostname()}, "cpu": {"physical_cores": psutil.cpu_count(logical=False), "logical_cores": psutil.cpu_count(logical=True), "max_frequency_mhz": frequency.max if frequency else None, "current_frequency_mhz": frequency.current if frequency else None, "per_core_usage_percent": per_core, "total_usage_percent": psutil.cpu_percent(interval=None)}, "memory": {"ram": {"total": human_size(memory.total), "available": human_size(memory.available), "used": human_size(memory.used), "usage_percent": memory.percent}, "swap": {"total": human_size(swap.total), "used": human_size(swap.used), "usage_percent": swap.percent}}, "disk": disks, "network": {"bytes_sent": human_size(psutil.net_io_counters().bytes_sent), "bytes_received": human_size(psutil.net_io_counters().bytes_recv), "interfaces": interfaces}, "battery": battery, "processes_count": len(processes), "top_processes": {"top_by_cpu": sorted(processes, key=lambda item: item["cpu_percent"], reverse=True)[:5], "top_by_memory": sorted(processes, key=lambda item: item["memory_percent"], reverse=True)[:5]}, "security": get_security()}
+    return {"system": {"os_name": platform.system(), "os_version": platform.version(), "os_release": platform.release(), "architecture": platform.machine(), "processor": platform.processor() or "Unknown", "hostname": socket.gethostname()}, "cpu": {"physical_cores": psutil.cpu_count(logical=False), "logical_cores": psutil.cpu_count(logical=True), "max_frequency_mhz": frequency.max if frequency else None, "current_frequency_mhz": frequency.current if frequency else None, "per_core_usage_percent": per_core, "total_usage_percent": psutil.cpu_percent(interval=None)}, "memory": {"ram": {"total": human_size(memory.total), "available": human_size(memory.available), "used": human_size(memory.used), "usage_percent": memory.percent}, "swap": {"total": human_size(swap.total), "used": human_size(swap.used), "usage_percent": swap.percent}}, "disk": disks, "network": {"bytes_sent": human_size(psutil.net_io_counters().bytes_sent), "bytes_received": human_size(psutil.net_io_counters().bytes_recv), "interfaces": interfaces}, "battery": battery, "processes_count": len(processes), "top_processes": {"top_by_cpu": sorted(processes, key=lambda item: item["cpu_percent"], reverse=True)[:5], "top_by_memory": sorted(processes, key=lambda item: item["memory_percent"], reverse=True)[:5]}, "security": get_security(), "performance": get_performance(config), "event_logs": get_event_logs()}
 
 
 def load_config():
@@ -130,7 +173,7 @@ def run():
     interval = max(2, int(config.get("interval_seconds", DEFAULT_INTERVAL)))
     logging.info("Agent %s started for device %s", config.get("nickname", socket.gethostname()), device_id)
     while True:
-        report = collect_report()
+        report = collect_report(config)
         cpu_before = (previous or {}).get("cpu", {}).get("total_usage_percent", 0)
         ram_before = (previous or {}).get("memory", {}).get("ram", {}).get("usage_percent", 0)
         cpu_now = report["cpu"]["total_usage_percent"]

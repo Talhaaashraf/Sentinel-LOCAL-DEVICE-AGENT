@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sentinel — Sign in</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .login-shell { display: grid; place-items: center; min-height: 100vh; padding: 20px; }
+    .login-card { width: min(360px, 100%); padding: 32px; background: var(--panel); border: 1px solid var(--line); }
+    .login-card .brand { margin: 0 0 26px; }
+    .login-card label { display: block; margin-bottom: 8px; color: var(--muted); font: .68rem Consolas, monospace; letter-spacing: 1px; }
+    .login-card input { width: 100%; padding: 12px; margin-bottom: 16px; color: var(--text); background: #0a1117; border: 1px solid var(--line); outline: none; box-sizing: border-box; }
+    .login-card input:focus { border-color: var(--teal); }
+    .login-card button { width: 100%; padding: 12px; color: #061b18; background: var(--teal); border: 0; font-size: .8rem; }
+    .login-error { margin: -6px 0 16px; color: var(--red); font: .72rem Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <div class="login-shell">
+    <form class="login-card" method="post" action="/login">
+      <div class="brand">
+        <span class="brand-mark">S</span>
+        <div><strong>Sentinel</strong><small>AI-POWERED DEVICE DIAGNOSTICS</small></div>
+      </div>
+      <label for="password">ADMIN PASSWORD</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+      <div id="login-error" class="login-error hidden">Incorrect password.</div>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+  <script>
+    if (new URLSearchParams(location.search).get('error')) {
+      document.getElementById('login-error').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

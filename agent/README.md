@@ -9,9 +9,13 @@ Example configuration (`agent_config.json`):
   "server_url": "http://127.0.0.1:8000",
   "token": "paste-token-from-admin",
   "nickname": "Office laptop",
-  "interval_seconds": 10
+  "interval_seconds": 10,
+  "enable_performance_benchmark": true,
+  "performance_interval_seconds": 1800
 }
 ```
+
+Every report also includes a read-only security snapshot (firewall, antivirus, disk encryption, patch history, listening ports), refreshed every 5 minutes, and a read-only event log snapshot (recent Warning/Error/Critical entries from Windows Event Viewer, journald, or the macOS unified log), refreshed every 10 minutes. Performance is different: it briefly writes a temp file and burns CPU to measure real throughput, so it runs on its own longer cadence (`performance_interval_seconds`, default 1800s / 30 min, minimum 300s) and can be turned off entirely with `"enable_performance_benchmark": false`.
 
 Install the fallback on a machine without a prebuilt binary:
 

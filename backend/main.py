@@ -1,42 +1,97 @@
-"""FastAPI server for a local, Wazuh-inspired device health monitor."""
+"""FastAPI server for a local, Wazuh-inspired, AI-powered device health monitor."""
 
 import asyncio
 import logging
 import os
 import secrets
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .actions import run_action
 from .alert_store import add_alert, get_alerts
+from .auth import PUBLIC_PATH_PREFIXES, SESSION_COOKIE_NAME, auth_enabled, check_password, has_valid_session, session_token
 from .collectors import collect_report
 from .device_store import create_pending_token, delete_device, get_device_by_token, get_latest_report, list_devices, mark_offline_devices, register_device, save_report
-from .groq_agent import AIModelUnavailableError, AIUnavailableError, chat, diagnose, is_ai_available
-from .rules_engine import evaluate_rules, evaluate_security_rules, health_from_report
+from .event_logs import collect_event_log_report
+from .groq_agent import AIModelUnavailableError, AIUnavailableError, chat, diagnose, diagnose_logs, is_ai_available
+from .performance_checks import collect_performance_report
+from .rules_engine import evaluate_event_log_rules, evaluate_performance_rules, evaluate_rules, evaluate_security_rules, health_from_report
 from .security_checks import collect_security_report
 
-app = FastAPI(title="Device Health Monitor")
+app = FastAPI(title="Sentinel Device Health Monitor")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
+
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
 logger = logging.getLogger(__name__)
+
+# In-memory state for the local-server monitor loop and its dashboard-facing caches.
 connections = set()
 previous_report = None
 previous_reports = {}
 chat_sessions = {}
 latest_security_report = None
-SECURITY_REFRESH_SECONDS = 300
+latest_performance_report = None
+latest_event_log_report = None
 
+SECURITY_REFRESH_SECONDS = 300
+EVENT_LOG_REFRESH_SECONDS = 600
+
+
+# ============================================================================
+# Auth
+# ============================================================================
 
 def require_admin(request):
+    """Stricter, separate gate for provisioning actions (generate/revoke agent tokens)."""
     configured = os.getenv("ADMIN_API_KEY", "").strip()
     if not configured or not secrets.compare_digest(request.headers.get("X-Admin-Key", ""), configured):
         raise HTTPException(status_code=401, detail="Admin authentication required")
 
+
+@app.middleware("http")
+async def dashboard_auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if not auth_enabled() or path.startswith(PUBLIC_PATH_PREFIXES):
+        return await call_next(request)
+    if has_valid_session(request.cookies):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse(status_code=401, content={"detail": "Login required"})
+    return RedirectResponse(url="/login")
+
+
+@app.get("/login", include_in_schema=False)
+def login_page():
+    return FileResponse(FRONTEND_DIR / "login.html")
+
+
+@app.post("/login", include_in_schema=False)
+async def login_submit(request: Request):
+    form = await request.form()
+    if not check_password(str(form.get("password", ""))):
+        return RedirectResponse(url="/login?error=1", status_code=303)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(SESSION_COOKIE_NAME, session_token(), httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+    return response
+
+
+@app.get("/logout", include_in_schema=False)
+def logout():
+    response = RedirectResponse(url="/login")
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return response
+
+
+# ============================================================================
+# Startup and background loops
+# ============================================================================
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request, exc):
@@ -60,27 +115,14 @@ async def start_monitor():
         route_line = f"  {methods or 'WEBSOCKET'} {route.path}"
         logger.info(route_line)
         print(route_line, flush=True)
+    if auth_enabled():
+        logger.info("Dashboard login is enabled (DASHBOARD_PASSWORD/ADMIN_API_KEY set).")
+    else:
+        logger.warning("Dashboard login is disabled: set DASHBOARD_PASSWORD or ADMIN_API_KEY in .env to require sign-in.")
     asyncio.create_task(monitor_loop())
     asyncio.create_task(offline_loop())
     asyncio.create_task(security_loop())
-
-
-async def refresh_security():
-    global latest_security_report
-    report = await asyncio.to_thread(collect_security_report)
-    for alert in evaluate_security_rules(report):
-        add_alert(alert, "local-server")
-    latest_security_report = report
-    return report
-
-
-async def security_loop():
-    while True:
-        try:
-            await refresh_security()
-        except Exception:
-            logger.exception("Security check failed")
-        await asyncio.sleep(SECURITY_REFRESH_SECONDS)
+    asyncio.create_task(event_log_loop())
 
 
 async def monitor_loop():
@@ -106,6 +148,59 @@ async def offline_loop():
         await asyncio.sleep(10)
 
 
+async def refresh_security():
+    global latest_security_report
+    report = await asyncio.to_thread(collect_security_report)
+    for alert in evaluate_security_rules(report):
+        add_alert(alert, "local-server")
+    latest_security_report = report
+    return report
+
+
+async def security_loop():
+    while True:
+        try:
+            await refresh_security()
+        except Exception:
+            logger.exception("Security check failed")
+        await asyncio.sleep(SECURITY_REFRESH_SECONDS)
+
+
+async def refresh_performance():
+    """Run the active benchmark suite. Called on demand only (see /api/diagnostics/performance);
+    unlike security or event-log checks it briefly writes to disk and uses CPU, so it never runs
+    on a timer here."""
+    global latest_performance_report
+    previous = latest_performance_report
+    report = await asyncio.to_thread(collect_performance_report)
+    for alert in evaluate_performance_rules(report, previous):
+        add_alert(alert, "local-server")
+    latest_performance_report = report
+    return report
+
+
+async def refresh_event_logs():
+    global latest_event_log_report
+    report = await asyncio.to_thread(collect_event_log_report)
+    for alert in evaluate_event_log_rules(report):
+        add_alert(alert, "local-server")
+    latest_event_log_report = report
+    return report
+
+
+async def event_log_loop():
+    while True:
+        try:
+            await refresh_event_logs()
+        except Exception:
+            logger.exception("Event log check failed")
+        await asyncio.sleep(EVENT_LOG_REFRESH_SECONDS)
+
+
+# ============================================================================
+# Local device diagnostics
+# ============================================================================
+
 @app.get("/", include_in_schema=False)
 def frontend():
     return FileResponse(FRONTEND_DIR / "index.html")
@@ -124,6 +219,9 @@ def health():
 @app.websocket("/ws/monitor")
 async def monitor(websocket: WebSocket):
     await websocket.accept()
+    if not has_valid_session(websocket.cookies):
+        await websocket.close(code=4401)
+        return
     connections.add(websocket)
     try:
         await websocket.send_json(snapshot_with_alerts(collect_report()))
@@ -140,10 +238,45 @@ async def security():
     return latest_security_report
 
 
+@app.get("/api/diagnostics/performance")
+def performance():
+    if latest_performance_report is None:
+        return JSONResponse(status_code=404, content={"detail": "No performance test has run yet. POST to this endpoint to run one."})
+    return latest_performance_report
+
+
+@app.post("/api/diagnostics/performance")
+async def run_performance():
+    return await refresh_performance()
+
+
+@app.get("/api/diagnostics/logs")
+async def event_logs_endpoint():
+    if latest_event_log_report is None:
+        return await refresh_event_logs()
+    return latest_event_log_report
+
+
+@app.post("/api/diagnostics/logs/diagnose")
+def diagnose_event_logs_endpoint():
+    if not is_ai_available():
+        raise HTTPException(status_code=503, detail="AI technician unavailable: configure GROQ_API_KEY in .env")
+    if latest_event_log_report is None:
+        raise HTTPException(status_code=404, detail="No event log data collected yet")
+    try:
+        return diagnose_logs(latest_event_log_report)
+    except (AIModelUnavailableError, AIUnavailableError) as error:
+        raise HTTPException(status_code=503, detail="AI technician is temporarily unavailable") from error
+
+
 @app.get("/api/alerts")
 def alerts(limit: int = 100):
     return {"alerts": get_alerts(max(1, min(limit, 500)), "local-server")}
 
+
+# ============================================================================
+# Remote agent provisioning and reporting
+# ============================================================================
 
 @app.post("/api/agents/generate-token")
 def generate_agent_token(request: Request):
@@ -180,13 +313,21 @@ def agent_report(payload: dict, request: Request):
     diagnostics_payload = payload.get("diagnostics")
     if not isinstance(diagnostics_payload, dict):
         raise HTTPException(status_code=400, detail="diagnostics object is required")
+
     device_id = device["device_id"]
-    previous = previous_reports.get(device_id)
-    alerts_for_report = evaluate_rules(diagnostics_payload, previous) + evaluate_security_rules(diagnostics_payload.get("security"))
+    previous = previous_reports.get(device_id) or {}
+    alerts_for_report = (
+        evaluate_rules(diagnostics_payload, previous)
+        + evaluate_security_rules(diagnostics_payload.get("security"))
+        + evaluate_performance_rules(diagnostics_payload.get("performance"), previous.get("performance"))
+        + evaluate_event_log_rules(diagnostics_payload.get("event_logs"))
+    )
     for alert in alerts_for_report:
         add_alert(alert, device_id)
     previous_reports[device_id] = diagnostics_payload
-    save_report(device_id, str(payload.get("timestamp") or __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()), diagnostics_payload, payload.get("spike_detected", False))
+
+    timestamp = str(payload.get("timestamp") or datetime.now(timezone.utc).isoformat())
+    save_report(device_id, timestamp, diagnostics_payload, payload.get("spike_detected", False))
     return {"accepted": True, "device_id": device_id, "alerts_created": len(alerts_for_report)}
 
 
@@ -208,15 +349,29 @@ def agent_diagnostics(device_id: str):
     return latest
 
 
-@app.get("/api/agents/{device_id}/security")
-def agent_security(device_id: str):
+def _device_diagnostics_field(device_id, field, missing_message):
     latest = get_latest_report(device_id)
     if not latest:
         raise HTTPException(status_code=404, detail="No diagnostics found for device")
-    security_data = latest["diagnostics"].get("security")
-    if security_data is None:
-        raise HTTPException(status_code=404, detail="This device has not reported security data yet")
-    return security_data
+    value = latest["diagnostics"].get(field)
+    if value is None:
+        raise HTTPException(status_code=404, detail=missing_message)
+    return value
+
+
+@app.get("/api/agents/{device_id}/security")
+def agent_security(device_id: str):
+    return _device_diagnostics_field(device_id, "security", "This device has not reported security data yet")
+
+
+@app.get("/api/agents/{device_id}/performance")
+def agent_performance(device_id: str):
+    return _device_diagnostics_field(device_id, "performance", "This device has not reported performance data yet")
+
+
+@app.get("/api/agents/{device_id}/logs")
+def agent_logs(device_id: str):
+    return _device_diagnostics_field(device_id, "event_logs", "This device has not reported event log data yet")
 
 
 @app.get("/api/agents/{device_id}/alerts")
@@ -250,19 +405,38 @@ def download_agent(platform: str):
     safe_platform = platform.lower()
     if safe_platform not in {"windows", "mac", "linux"}:
         raise HTTPException(status_code=404, detail="Platform must be windows, mac, or linux")
+
     builds = Path(__file__).resolve().parent.parent / "agent_builds"
-    candidates = {"windows": ("DeviceHealthAgent.exe", "application/vnd.microsoft.portable-executable"), "mac": ("DeviceHealthAgent", "application/octet-stream"), "linux": ("DeviceHealthAgent", "application/octet-stream")}
+    candidates = {
+        "windows": ("DeviceHealthAgent.exe", "application/vnd.microsoft.portable-executable"),
+        "mac": ("DeviceHealthAgent", "application/octet-stream"),
+        "linux": ("DeviceHealthAgent", "application/octet-stream"),
+    }
     folder = "macos" if safe_platform == "mac" else safe_platform
     filename, media_type = candidates[safe_platform]
+
     root = os.path.realpath(builds)
     path = os.path.realpath(builds / folder / filename)
     if os.path.commonpath([root, path]) != root:
         raise HTTPException(status_code=400, detail="Invalid download path")
+
     if not path.exists():
-        messages = {"windows": "Windows installer not built yet. See agent/README.md", "mac": "macOS installer not built yet. See agent/README.md", "linux": "Linux installer not built yet. See agent/README.md"}
-        return JSONResponse(status_code=404, content={"available": False, "message": messages[safe_platform], "manual_install": "pip install -r agent_requirements.txt && python monitor_agent.py"})
+        messages = {
+            "windows": "Windows installer not built yet. See agent/README.md",
+            "mac": "macOS installer not built yet. See agent/README.md",
+            "linux": "Linux installer not built yet. See agent/README.md",
+        }
+        return JSONResponse(status_code=404, content={
+            "available": False,
+            "message": messages[safe_platform],
+            "manual_install": "pip install -r agent_requirements.txt && python monitor_agent.py",
+        })
     return FileResponse(path, filename=filename, media_type=media_type)
 
+
+# ============================================================================
+# AI technician
+# ============================================================================
 
 @app.post("/api/agent/diagnose")
 def agent_diagnose(payload: dict):
@@ -297,6 +471,7 @@ def agent_chat(payload: dict):
     message = str(payload.get("message", "")).strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
+
     session_id = str(payload.get("session_id", "default"))
     history = chat_sessions.setdefault(session_id, [])
     try:

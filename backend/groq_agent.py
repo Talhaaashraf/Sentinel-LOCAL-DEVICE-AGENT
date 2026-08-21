@@ -7,8 +7,24 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
-SYSTEM_PROMPT = "You are an experienced IT help desk technician analyzing a Windows device's health data. Explain issues in plain, non-technical language first, then give a technical root-cause explanation, then concrete step-by-step recommendations a normal user can follow. Return valid JSON only."
+
+DIAGNOSIS_SYSTEM_PROMPT = (
+    "You are an experienced IT help desk technician analyzing a device's health data. "
+    "Explain issues in plain, non-technical language first, then give a technical root-cause "
+    "explanation, then concrete step-by-step recommendations a normal user can follow. "
+    "Return valid JSON only."
+)
+LOG_SYSTEM_PROMPT = (
+    "You are an experienced IT support engineer analyzing recent operating system event log "
+    "entries (Windows Event Viewer, journald, or the macOS unified log). Identify the most "
+    "likely root cause behind any critical or error patterns, explain it in plain language "
+    "first, then give the technical detail, then concrete remediation steps. If the logs show "
+    "no meaningful problem, say so plainly. Return valid JSON only."
+)
+CHAT_SYSTEM_PROMPT = DIAGNOSIS_SYSTEM_PROMPT + " Return valid JSON with plain_explanation, technical_root_cause, and recommendations fields."
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,30 +63,72 @@ def _completion(messages, structured=False):
     except Exception as error:
         status_code = getattr(error, "status_code", None)
         error_name = type(error).__name__
-        if error_name == "NotFoundError" or status_code is not None and 400 <= status_code < 500:
+        if error_name == "NotFoundError" or (status_code is not None and 400 <= status_code < 500):
             logger.exception("Groq rejected model %s with a client error", GROQ_MODEL)
             raise AIModelUnavailableError(AIModelUnavailableError.public_error) from error
         logger.exception("Groq request failed for model %s", GROQ_MODEL)
         raise AIUnavailableError("AI technician is temporarily unavailable") from error
 
 
-def diagnose(report, alert_history):
-    raw = _completion([{"role": "system", "content": SYSTEM_PROMPT + " Use this schema: {summary, root_cause, severity, steps, suggested_actions}."}, {"role": "user", "content": json.dumps({"diagnostics": report, "recent_alerts": alert_history})}], structured=True)
+def _parse_diagnosis(raw):
     try:
         result = json.loads(raw)
-        return {"summary": str(result.get("summary", "No summary returned.")), "root_cause": str(result.get("root_cause", "Unknown")), "severity": str(result.get("severity", "medium")), "steps": list(result.get("steps", [])), "suggested_actions": list(result.get("suggested_actions", []))}
     except (TypeError, ValueError, json.JSONDecodeError):
-        return {"summary": raw, "root_cause": "The technician returned an unstructured response.", "severity": "medium", "steps": ["Review the current alerts and metrics above.", "Ask the technician a follow-up question for a more focused explanation."], "suggested_actions": []}
+        return {
+            "summary": raw,
+            "root_cause": "The technician returned an unstructured response.",
+            "severity": "medium",
+            "steps": [
+                "Review the current alerts and metrics above.",
+                "Ask the technician a follow-up question for a more focused explanation.",
+            ],
+            "suggested_actions": [],
+        }
+    return {
+        "summary": str(result.get("summary", "No summary returned.")),
+        "root_cause": str(result.get("root_cause", "Unknown")),
+        "severity": str(result.get("severity", "medium")),
+        "steps": list(result.get("steps", [])),
+        "suggested_actions": list(result.get("suggested_actions", [])),
+    }
 
 
-def _structured_chat(raw):
+def diagnose(report, alert_history):
+    schema_hint = " Use this schema: {summary, root_cause, severity, steps, suggested_actions}."
+    raw = _completion(
+        [
+            {"role": "system", "content": DIAGNOSIS_SYSTEM_PROMPT + schema_hint},
+            {"role": "user", "content": json.dumps({"diagnostics": report, "recent_alerts": alert_history})},
+        ],
+        structured=True,
+    )
+    return _parse_diagnosis(raw)
+
+
+def diagnose_logs(event_log_report):
+    schema_hint = " Use this schema: {summary, root_cause, severity, steps, suggested_actions}."
+    raw = _completion(
+        [
+            {"role": "system", "content": LOG_SYSTEM_PROMPT + schema_hint},
+            {"role": "user", "content": json.dumps({"event_logs": event_log_report})},
+        ],
+        structured=True,
+    )
+    return _parse_diagnosis(raw)
+
+
+def _parse_chat_reply(raw):
     text = raw.strip()
     if text.startswith("```"):
         text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         result = json.loads(text)
     except (TypeError, ValueError, json.JSONDecodeError):
-        return {"plain_explanation": raw, "technical_root_cause": "The technician returned an unstructured response.", "recommendations": []}
+        return {
+            "plain_explanation": raw,
+            "technical_root_cause": "The technician returned an unstructured response.",
+            "recommendations": [],
+        }
     return {
         "plain_explanation": str(result.get("plain_explanation", result.get("summary", "No plain-language explanation returned."))),
         "technical_root_cause": str(result.get("technical_root_cause", result.get("root_cause", "Unknown"))),
@@ -79,7 +137,7 @@ def _structured_chat(raw):
 
 
 def chat(message, report, conversation_history):
-    messages = [{"role": "system", "content": SYSTEM_PROMPT + " Return valid JSON with plain_explanation, technical_root_cause, and recommendations fields."}]
+    messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
     messages.extend(conversation_history[-6:])
     messages.append({"role": "user", "content": json.dumps({"question": message, "current_diagnostics": report})})
-    return _structured_chat(_completion(messages, structured=True))
+    return _parse_chat_reply(_completion(messages, structured=True))

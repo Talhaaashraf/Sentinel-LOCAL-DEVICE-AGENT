@@ -2,5 +2,7 @@
   "server_url": "http://YOUR_SERVER_IP:8000",
   "token": "PASTE_TOKEN_HERE",
   "nickname": "my-device",
-  "interval_seconds": 10
+  "interval_seconds": 10,
+  "enable_performance_benchmark": true,
+  "performance_interval_seconds": 1800
 }

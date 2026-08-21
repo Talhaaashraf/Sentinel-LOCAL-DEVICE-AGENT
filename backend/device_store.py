@@ -23,17 +23,51 @@ def utc_now():
 def _connect():
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
-    connection.execute("CREATE TABLE IF NOT EXISTS devices (device_id TEXT PRIMARY KEY, nickname TEXT NOT NULL, hostname TEXT NOT NULL, os_type TEXT NOT NULL, agent_token TEXT, agent_token_hash TEXT, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'offline', token_expires_at TEXT)")
-    connection.execute("CREATE TABLE IF NOT EXISTS device_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT NOT NULL, timestamp TEXT NOT NULL, diagnostics_json TEXT NOT NULL, spike_detected INTEGER NOT NULL DEFAULT 0)")
-    connection.execute("CREATE TABLE IF NOT EXISTS pending_agent_tokens (token_hash TEXT PRIMARY KEY, expires_at TEXT NOT NULL)")
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS devices (
+            device_id TEXT PRIMARY KEY,
+            nickname TEXT NOT NULL,
+            hostname TEXT NOT NULL,
+            os_type TEXT NOT NULL,
+            agent_token TEXT,
+            agent_token_hash TEXT,
+            first_seen TEXT NOT NULL,
+            last_seen TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'offline',
+            token_expires_at TEXT
+        )
+    """)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS device_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            diagnostics_json TEXT NOT NULL,
+            spike_detected INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS pending_agent_tokens (
+            token_hash TEXT PRIMARY KEY,
+            expires_at TEXT NOT NULL
+        )
+    """)
+
     columns = {row[1] for row in connection.execute("PRAGMA table_info(devices)").fetchall()}
     for column, definition in (("agent_token_hash", "TEXT"), ("token_expires_at", "TEXT")):
         if column not in columns:
             connection.execute(f"ALTER TABLE devices ADD COLUMN {column} {definition}")
-    legacy = connection.execute("SELECT device_id, agent_token FROM devices WHERE agent_token_hash IS NULL AND agent_token IS NOT NULL").fetchall()
-    for row in legacy:
+
+    legacy_rows = connection.execute(
+        "SELECT device_id, agent_token FROM devices WHERE agent_token_hash IS NULL AND agent_token IS NOT NULL"
+    ).fetchall()
+    for row in legacy_rows:
         legacy_hash = hash_token(row["agent_token"])
-        connection.execute("UPDATE devices SET agent_token_hash = ?, agent_token = ? WHERE device_id = ?", (legacy_hash, legacy_hash, row["device_id"]))
+        connection.execute(
+            "UPDATE devices SET agent_token_hash = ?, agent_token = ? WHERE device_id = ?",
+            (legacy_hash, legacy_hash, row["device_id"]),
+        )
+
     connection.commit()
     return connection
 
@@ -42,7 +76,10 @@ def create_pending_token(hours=24):
     token = secrets.token_urlsafe(32)
     expires_at = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() + hours * 3600, timezone.utc).isoformat()
     with _connect() as connection:
-        connection.execute("INSERT INTO pending_agent_tokens (token_hash, expires_at) VALUES (?, ?)", (hash_token(token), expires_at))
+        connection.execute(
+            "INSERT INTO pending_agent_tokens (token_hash, expires_at) VALUES (?, ?)",
+            (hash_token(token), expires_at),
+        )
         connection.commit()
     return token, expires_at
 
@@ -51,8 +88,13 @@ def register_device(token, hostname, os_type, nickname="", device_id=None):
     token_hash = hash_token(token)
     now = utc_now()
     with _connect() as connection:
-        pending = connection.execute("SELECT expires_at FROM pending_agent_tokens WHERE token_hash = ?", (token_hash,)).fetchone()
-        existing = connection.execute("SELECT * FROM devices WHERE agent_token_hash = ?", (token_hash,)).fetchone()
+        pending = connection.execute(
+            "SELECT expires_at FROM pending_agent_tokens WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        existing = connection.execute(
+            "SELECT * FROM devices WHERE agent_token_hash = ?", (token_hash,)
+        ).fetchone()
+
         if pending:
             if datetime.fromisoformat(pending["expires_at"]) <= datetime.now(timezone.utc):
                 connection.execute("DELETE FROM pending_agent_tokens WHERE token_hash = ?", (token_hash,))
@@ -66,14 +108,27 @@ def register_device(token, hostname, os_type, nickname="", device_id=None):
                 raise ValueError("Agent token has expired")
         else:
             raise ValueError("Invalid or unclaimed agent token")
+
         if existing:
             device_id = existing["device_id"]
-            connection.execute("UPDATE devices SET hostname = ?, os_type = ?, nickname = ?, last_seen = ?, status = 'online' WHERE device_id = ?", (hostname, os_type, nickname or existing["nickname"], now, device_id))
+            connection.execute(
+                "UPDATE devices SET hostname = ?, os_type = ?, nickname = ?, last_seen = ?, status = 'online' WHERE device_id = ?",
+                (hostname, os_type, nickname or existing["nickname"], now, device_id),
+            )
         else:
             device_id = device_id or f"agent-{uuid.uuid4().hex[:12]}"
-            connection.execute("INSERT INTO devices (device_id, nickname, hostname, os_type, agent_token_hash, first_seen, last_seen, status, token_expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'online', ?)", (device_id, nickname or hostname, hostname, os_type, token_hash, now, now, token_expires_at))
+            connection.execute(
+                "INSERT INTO devices (device_id, nickname, hostname, os_type, agent_token_hash, first_seen, last_seen, status, token_expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'online', ?)",
+                (device_id, nickname or hostname, hostname, os_type, token_hash, now, now, token_expires_at),
+            )
+
         connection.commit()
-        return dict(connection.execute("SELECT device_id, nickname, hostname, os_type, first_seen, last_seen, status, token_expires_at FROM devices WHERE device_id = ?", (device_id,)).fetchone())
+        row = connection.execute(
+            "SELECT device_id, nickname, hostname, os_type, first_seen, last_seen, status, token_expires_at FROM devices WHERE device_id = ?",
+            (device_id,),
+        ).fetchone()
+        return dict(row)
 
 
 def get_device_by_token(token):
@@ -96,9 +151,18 @@ def delete_device(device_id):
 
 def save_report(device_id, timestamp, diagnostics, spike_detected=False):
     with _connect() as connection:
-        connection.execute("INSERT INTO device_reports (device_id, timestamp, diagnostics_json, spike_detected) VALUES (?, ?, ?, ?)", (device_id, timestamp, json.dumps(diagnostics), int(bool(spike_detected))))
-        connection.execute("UPDATE devices SET last_seen = ?, status = 'online' WHERE device_id = ?", (timestamp, device_id))
-        connection.execute("DELETE FROM device_reports WHERE device_id = ? AND id NOT IN (SELECT id FROM device_reports WHERE device_id = ? ORDER BY id DESC LIMIT 20)", (device_id, device_id))
+        connection.execute(
+            "INSERT INTO device_reports (device_id, timestamp, diagnostics_json, spike_detected) VALUES (?, ?, ?, ?)",
+            (device_id, timestamp, json.dumps(diagnostics), int(bool(spike_detected))),
+        )
+        connection.execute(
+            "UPDATE devices SET last_seen = ?, status = 'online' WHERE device_id = ?", (timestamp, device_id)
+        )
+        connection.execute(
+            "DELETE FROM device_reports WHERE device_id = ? AND id NOT IN "
+            "(SELECT id FROM device_reports WHERE device_id = ? ORDER BY id DESC LIMIT 20)",
+            (device_id, device_id),
+        )
         connection.commit()
 
 
@@ -113,7 +177,11 @@ def _decode_report(row):
 
 def get_latest_report(device_id):
     with _connect() as connection:
-        return _decode_report(connection.execute("SELECT id, device_id, timestamp, diagnostics_json, spike_detected FROM device_reports WHERE device_id = ? ORDER BY id DESC LIMIT 1", (device_id,)).fetchone())
+        row = connection.execute(
+            "SELECT id, device_id, timestamp, diagnostics_json, spike_detected FROM device_reports WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+            (device_id,),
+        ).fetchone()
+        return _decode_report(row)
 
 
 def mark_offline_devices():
@@ -133,5 +201,7 @@ def mark_offline_devices():
 def list_devices():
     mark_offline_devices()
     with _connect() as connection:
-        rows = connection.execute("SELECT device_id, nickname, hostname, os_type, first_seen, last_seen, status, token_expires_at FROM devices ORDER BY nickname").fetchall()
+        rows = connection.execute(
+            "SELECT device_id, nickname, hostname, os_type, first_seen, last_seen, status, token_expires_at FROM devices ORDER BY nickname"
+        ).fetchall()
         return [dict(row) for row in rows]

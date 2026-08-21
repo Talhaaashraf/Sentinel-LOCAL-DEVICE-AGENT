@@ -4,3 +4,4 @@ psutil
 groq
 python-dotenv
 websockets
+python-multipart

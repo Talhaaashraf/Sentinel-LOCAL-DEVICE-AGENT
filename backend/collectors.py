@@ -21,18 +21,47 @@ def human_size(value):
 def get_system_info():
     boot = psutil.boot_time()
     uptime = max(0, datetime.datetime.now().timestamp() - boot)
-    return {"os_name": platform.system(), "os_version": platform.version(), "os_release": platform.release(), "architecture": platform.machine(), "processor": platform.processor() or "Unknown", "hostname": socket.gethostname(), "boot_time": datetime.datetime.fromtimestamp(boot).isoformat(sep=" ", timespec="seconds"), "uptime": str(datetime.timedelta(seconds=int(uptime))), "uptime_seconds": round(uptime, 2)}
+    return {
+        "os_name": platform.system(),
+        "os_version": platform.version(),
+        "os_release": platform.release(),
+        "architecture": platform.machine(),
+        "processor": platform.processor() or "Unknown",
+        "hostname": socket.gethostname(),
+        "boot_time": datetime.datetime.fromtimestamp(boot).isoformat(sep=" ", timespec="seconds"),
+        "uptime": str(datetime.timedelta(seconds=int(uptime))),
+        "uptime_seconds": round(uptime, 2),
+    }
 
 
 def get_cpu_info():
     frequency = psutil.cpu_freq()
     per_core = psutil.cpu_percent(interval=0.15, percpu=True)
-    return {"physical_cores": psutil.cpu_count(logical=False), "logical_cores": psutil.cpu_count(logical=True), "max_frequency_mhz": round(frequency.max, 2) if frequency else None, "current_frequency_mhz": round(frequency.current, 2) if frequency else None, "per_core_usage_percent": [round(value, 2) for value in per_core], "total_usage_percent": round(psutil.cpu_percent(interval=None), 2)}
+    return {
+        "physical_cores": psutil.cpu_count(logical=False),
+        "logical_cores": psutil.cpu_count(logical=True),
+        "max_frequency_mhz": round(frequency.max, 2) if frequency else None,
+        "current_frequency_mhz": round(frequency.current, 2) if frequency else None,
+        "per_core_usage_percent": [round(value, 2) for value in per_core],
+        "total_usage_percent": round(psutil.cpu_percent(interval=None), 2),
+    }
 
 
 def get_memory_info():
     memory, swap = psutil.virtual_memory(), psutil.swap_memory()
-    return {"ram": {"total": human_size(memory.total), "available": human_size(memory.available), "used": human_size(memory.used), "usage_percent": round(memory.percent, 2)}, "swap": {"total": human_size(swap.total), "used": human_size(swap.used), "usage_percent": round(swap.percent, 2)}}
+    return {
+        "ram": {
+            "total": human_size(memory.total),
+            "available": human_size(memory.available),
+            "used": human_size(memory.used),
+            "usage_percent": round(memory.percent, 2),
+        },
+        "swap": {
+            "total": human_size(swap.total),
+            "used": human_size(swap.used),
+            "usage_percent": round(swap.percent, 2),
+        },
+    }
 
 
 def get_disk_info():
@@ -42,7 +71,15 @@ def get_disk_info():
             usage = psutil.disk_usage(partition.mountpoint)
         except (PermissionError, OSError):
             continue
-        disks.append({"device": partition.device, "mountpoint": partition.mountpoint, "filesystem": partition.fstype, "total": human_size(usage.total), "used": human_size(usage.used), "free": human_size(usage.free), "usage_percent": round(usage.percent, 2)})
+        disks.append({
+            "device": partition.device,
+            "mountpoint": partition.mountpoint,
+            "filesystem": partition.fstype,
+            "total": human_size(usage.total),
+            "used": human_size(usage.used),
+            "free": human_size(usage.free),
+            "usage_percent": round(usage.percent, 2),
+        })
     return disks
 
 
@@ -52,8 +89,16 @@ def get_network_info():
     for name, addresses in psutil.net_if_addrs().items():
         ipv4 = [address.address for address in addresses if address.family == socket.AF_INET]
         interface_stats = stats.get(name)
-        interfaces.append({"name": name, "status": "UP" if interface_stats and interface_stats.isup else "DOWN", "ipv4_addresses": ipv4})
-    return {"bytes_sent": human_size(counters.bytes_sent) if counters else "N/A", "bytes_received": human_size(counters.bytes_recv) if counters else "N/A", "interfaces": interfaces}
+        interfaces.append({
+            "name": name,
+            "status": "UP" if interface_stats and interface_stats.isup else "DOWN",
+            "ipv4_addresses": ipv4,
+        })
+    return {
+        "bytes_sent": human_size(counters.bytes_sent) if counters else "N/A",
+        "bytes_received": human_size(counters.bytes_recv) if counters else "N/A",
+        "interfaces": interfaces,
+    }
 
 
 def get_battery_info():
@@ -64,7 +109,11 @@ def get_battery_info():
     if battery is None:
         return None
     remaining = "Unknown" if battery.secsleft < 0 else str(datetime.timedelta(seconds=int(battery.secsleft)))
-    return {"percent": round(battery.percent, 2), "charging": bool(battery.power_plugged), "time_remaining": remaining}
+    return {
+        "percent": round(battery.percent, 2),
+        "charging": bool(battery.power_plugged),
+        "time_remaining": remaining,
+    }
 
 
 def get_top_processes():
@@ -72,10 +121,18 @@ def get_top_processes():
     for process in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent"]):
         try:
             info = process.info
-            processes.append({"pid": info["pid"], "name": info.get("name") or "Unknown", "cpu_percent": round(info.get("cpu_percent") or 0, 2), "memory_percent": round(info.get("memory_percent") or 0, 2)})
+            processes.append({
+                "pid": info["pid"],
+                "name": info.get("name") or "Unknown",
+                "cpu_percent": round(info.get("cpu_percent") or 0, 2),
+                "memory_percent": round(info.get("memory_percent") or 0, 2),
+            })
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-    return {"top_by_cpu": sorted(processes, key=lambda item: item["cpu_percent"], reverse=True)[:5], "top_by_memory": sorted(processes, key=lambda item: item["memory_percent"], reverse=True)[:5]}
+    return {
+        "top_by_cpu": sorted(processes, key=lambda item: item["cpu_percent"], reverse=True)[:5],
+        "top_by_memory": sorted(processes, key=lambda item: item["memory_percent"], reverse=True)[:5],
+    }
 
 
 def collect_report():
@@ -83,4 +140,12 @@ def collect_report():
         process_count = len(list(psutil.process_iter()))
     except (OSError, psutil.Error):
         process_count = None
-    return {"system": get_system_info(), "cpu": get_cpu_info(), "memory": get_memory_info(), "disk": get_disk_info(), "network": get_network_info(), "battery": get_battery_info(), "processes_count": process_count}
+    return {
+        "system": get_system_info(),
+        "cpu": get_cpu_info(),
+        "memory": get_memory_info(),
+        "disk": get_disk_info(),
+        "network": get_network_info(),
+        "battery": get_battery_info(),
+        "processes_count": process_count,
+    }
