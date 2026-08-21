@@ -11,10 +11,33 @@ CPU_SPIKE_PERCENT = 40
 SPIKE_WINDOW_SECONDS = 10
 AUTO_DIAGNOSE_SEVERITY = "high"
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+RISKY_PORTS = {21: "FTP (unencrypted)", 23: "Telnet (unencrypted)", 445: "SMB", 3389: "RDP", 5900: "VNC"}
+LOOPBACK_PREFIXES = ("127.", "::1")
 
 
 def _alert(severity, category, description):
     return {"timestamp": datetime.now(timezone.utc).isoformat(), "severity": severity, "category": category, "description": description}
+
+
+def evaluate_security_rules(security):
+    if not security:
+        return []
+    alerts = []
+    firewall = security.get("firewall", {})
+    if firewall.get("available") and firewall.get("enabled") is False:
+        alerts.append(_alert("critical", "Security", "Firewall is disabled."))
+    antivirus = security.get("antivirus", {})
+    if antivirus.get("available") and antivirus.get("enabled") is False:
+        alerts.append(_alert("critical", "Security", "Antivirus / real-time protection is disabled."))
+    encryption = security.get("disk_encryption", {})
+    if encryption.get("available") and encryption.get("encrypted") is False:
+        alerts.append(_alert("medium", "Security", "System drive is not encrypted."))
+    for port_info in security.get("listening_ports", {}).get("ports", []):
+        label = RISKY_PORTS.get(port_info.get("port"))
+        address = str(port_info.get("address", ""))
+        if label and not address.startswith(LOOPBACK_PREFIXES):
+            alerts.append(_alert("high", "Security", f"{label} port {port_info['port']} is listening on {address} ({port_info.get('process', 'unknown process')})."))
+    return sorted(alerts, key=lambda item: SEVERITY_ORDER[item["severity"]])
 
 
 def evaluate_rules(report, previous_report=None):

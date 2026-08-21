@@ -16,7 +16,8 @@ from .alert_store import add_alert, get_alerts
 from .collectors import collect_report
 from .device_store import create_pending_token, delete_device, get_device_by_token, get_latest_report, list_devices, mark_offline_devices, register_device, save_report
 from .groq_agent import AIModelUnavailableError, AIUnavailableError, chat, diagnose, is_ai_available
-from .rules_engine import evaluate_rules, health_from_report
+from .rules_engine import evaluate_rules, evaluate_security_rules, health_from_report
+from .security_checks import collect_security_report
 
 app = FastAPI(title="Device Health Monitor")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
@@ -27,6 +28,8 @@ connections = set()
 previous_report = None
 previous_reports = {}
 chat_sessions = {}
+latest_security_report = None
+SECURITY_REFRESH_SECONDS = 300
 
 
 def require_admin(request):
@@ -59,6 +62,25 @@ async def start_monitor():
         print(route_line, flush=True)
     asyncio.create_task(monitor_loop())
     asyncio.create_task(offline_loop())
+    asyncio.create_task(security_loop())
+
+
+async def refresh_security():
+    global latest_security_report
+    report = await asyncio.to_thread(collect_security_report)
+    for alert in evaluate_security_rules(report):
+        add_alert(alert, "local-server")
+    latest_security_report = report
+    return report
+
+
+async def security_loop():
+    while True:
+        try:
+            await refresh_security()
+        except Exception:
+            logger.exception("Security check failed")
+        await asyncio.sleep(SECURITY_REFRESH_SECONDS)
 
 
 async def monitor_loop():
@@ -111,6 +133,13 @@ async def monitor(websocket: WebSocket):
         connections.discard(websocket)
 
 
+@app.get("/api/diagnostics/security")
+async def security():
+    if latest_security_report is None:
+        return await refresh_security()
+    return latest_security_report
+
+
 @app.get("/api/alerts")
 def alerts(limit: int = 100):
     return {"alerts": get_alerts(max(1, min(limit, 500)), "local-server")}
@@ -153,7 +182,7 @@ def agent_report(payload: dict, request: Request):
         raise HTTPException(status_code=400, detail="diagnostics object is required")
     device_id = device["device_id"]
     previous = previous_reports.get(device_id)
-    alerts_for_report = evaluate_rules(diagnostics_payload, previous)
+    alerts_for_report = evaluate_rules(diagnostics_payload, previous) + evaluate_security_rules(diagnostics_payload.get("security"))
     for alert in alerts_for_report:
         add_alert(alert, device_id)
     previous_reports[device_id] = diagnostics_payload
@@ -177,6 +206,17 @@ def agent_diagnostics(device_id: str):
     if not latest:
         raise HTTPException(status_code=404, detail="No diagnostics found for device")
     return latest
+
+
+@app.get("/api/agents/{device_id}/security")
+def agent_security(device_id: str):
+    latest = get_latest_report(device_id)
+    if not latest:
+        raise HTTPException(status_code=404, detail="No diagnostics found for device")
+    security_data = latest["diagnostics"].get("security")
+    if security_data is None:
+        raise HTTPException(status_code=404, detail="This device has not reported security data yet")
+    return security_data
 
 
 @app.get("/api/agents/{device_id}/alerts")

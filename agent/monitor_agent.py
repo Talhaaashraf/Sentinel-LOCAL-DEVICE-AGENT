@@ -14,11 +14,30 @@ from pathlib import Path
 import psutil
 import requests
 
+try:
+    from security_checks import collect_security_report
+except ImportError:
+    from .security_checks import collect_security_report
+
 AGENT_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 CONFIG_PATH = AGENT_DIR / "agent_config.json"
 LOG_PATH = AGENT_DIR / "agent_log.txt"
 DEFAULT_INTERVAL = 10
+SECURITY_REFRESH_SECONDS = 300
 logging.basicConfig(filename=LOG_PATH, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+_security_cache = {"data": None, "checked_at": 0}
+
+
+def get_security():
+    now = time.time()
+    if _security_cache["data"] is None or now - _security_cache["checked_at"] > SECURITY_REFRESH_SECONDS:
+        try:
+            _security_cache["data"] = collect_security_report()
+        except Exception:
+            logging.exception("Security check failed")
+            _security_cache["data"] = _security_cache["data"] or {}
+        _security_cache["checked_at"] = now
+    return _security_cache["data"]
 
 
 def human_size(value):
@@ -59,7 +78,7 @@ def collect_report():
             processes.append({"pid": info["pid"], "name": info.get("name") or "Unknown", "cpu_percent": round(info.get("cpu_percent") or 0, 2), "memory_percent": round(info.get("memory_percent") or 0, 2)})
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-    return {"system": {"os_name": platform.system(), "os_version": platform.version(), "os_release": platform.release(), "architecture": platform.machine(), "processor": platform.processor() or "Unknown", "hostname": socket.gethostname()}, "cpu": {"physical_cores": psutil.cpu_count(logical=False), "logical_cores": psutil.cpu_count(logical=True), "max_frequency_mhz": frequency.max if frequency else None, "current_frequency_mhz": frequency.current if frequency else None, "per_core_usage_percent": per_core, "total_usage_percent": psutil.cpu_percent(interval=None)}, "memory": {"ram": {"total": human_size(memory.total), "available": human_size(memory.available), "used": human_size(memory.used), "usage_percent": memory.percent}, "swap": {"total": human_size(swap.total), "used": human_size(swap.used), "usage_percent": swap.percent}}, "disk": disks, "network": {"bytes_sent": human_size(psutil.net_io_counters().bytes_sent), "bytes_received": human_size(psutil.net_io_counters().bytes_recv), "interfaces": interfaces}, "battery": battery, "processes_count": len(processes), "top_processes": {"top_by_cpu": sorted(processes, key=lambda item: item["cpu_percent"], reverse=True)[:5], "top_by_memory": sorted(processes, key=lambda item: item["memory_percent"], reverse=True)[:5]}}
+    return {"system": {"os_name": platform.system(), "os_version": platform.version(), "os_release": platform.release(), "architecture": platform.machine(), "processor": platform.processor() or "Unknown", "hostname": socket.gethostname()}, "cpu": {"physical_cores": psutil.cpu_count(logical=False), "logical_cores": psutil.cpu_count(logical=True), "max_frequency_mhz": frequency.max if frequency else None, "current_frequency_mhz": frequency.current if frequency else None, "per_core_usage_percent": per_core, "total_usage_percent": psutil.cpu_percent(interval=None)}, "memory": {"ram": {"total": human_size(memory.total), "available": human_size(memory.available), "used": human_size(memory.used), "usage_percent": memory.percent}, "swap": {"total": human_size(swap.total), "used": human_size(swap.used), "usage_percent": swap.percent}}, "disk": disks, "network": {"bytes_sent": human_size(psutil.net_io_counters().bytes_sent), "bytes_received": human_size(psutil.net_io_counters().bytes_recv), "interfaces": interfaces}, "battery": battery, "processes_count": len(processes), "top_processes": {"top_by_cpu": sorted(processes, key=lambda item: item["cpu_percent"], reverse=True)[:5], "top_by_memory": sorted(processes, key=lambda item: item["memory_percent"], reverse=True)[:5]}, "security": get_security()}
 
 
 def load_config():

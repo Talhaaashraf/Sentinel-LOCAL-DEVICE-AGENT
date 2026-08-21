@@ -13,8 +13,9 @@
       <nav aria-label="Primary navigation">
         <button class="nav-item active" data-tab="dashboard"><span>01</span>Dashboard</button>
         <button class="nav-item" data-tab="alerts"><span>02</span>Alerts <b id="alert-count">0</b></button>
-        <button class="nav-item" data-tab="technician"><span>03</span>Ask Technician</button>
-        <button class="nav-item" data-tab="agents"><span>04</span>Agents <b id="agent-count">0</b></button>
+        <button class="nav-item" data-tab="security"><span>03</span>Security</button>
+        <button class="nav-item" data-tab="technician"><span>04</span>Ask Technician</button>
+        <button class="nav-item" data-tab="agents"><span>05</span>Agents <b id="agent-count">0</b></button>
       </nav>
       <div id="connection-state" class="connection-state"><span id="connection-dot"></span><div><strong id="connection-label">Connecting</strong><small id="connection-detail">Opening monitor stream</small></div></div>
       <p class="sidebar-note">A private, local-first health monitor for this Windows device.</p>
@@ -32,6 +33,15 @@
           <article class="metric-card"><div class="metric-head"><span>BATTERY</span><span id="battery-state" class="metric-state">--</span></div><div class="metric-number" id="battery-value">--</div><p id="battery-detail">Waiting</p></article>
         </div>
         <section class="overview-panel"><div class="section-heading"><div><p class="kicker">ENDPOINT IDENTITY</p><h2>System overview</h2></div><span id="process-count" class="soft-label">-- processes</span></div><div class="overview-grid"><div><small>HOSTNAME</small><strong id="hostname">--</strong></div><div><small>OPERATING SYSTEM</small><strong id="os-name">--</strong></div><div><small>UPTIME</small><strong id="uptime">--</strong></div><div><small>ARCHITECTURE</small><strong id="architecture">--</strong></div></div></section>
+      </section>
+      <section id="security" class="tab"><header class="page-heading"><div><p class="kicker">POSTURE / LOCAL RULES</p><h1>Security</h1><p class="subheading">Firewall, antivirus, disk encryption, updates, and exposed ports on this device.</p></div><button id="refresh-security" class="ghost-button">Re-scan now</button></header><div class="metric-grid security-grid">
+        <article class="metric-card" id="firewall-card"><div class="metric-head"><span>FIREWALL</span><span id="firewall-state" class="metric-state">--</span></div><p id="firewall-detail">Waiting</p></article>
+        <article class="metric-card" id="antivirus-card"><div class="metric-head"><span>ANTIVIRUS</span><span id="antivirus-state" class="metric-state">--</span></div><p id="antivirus-detail">Waiting</p></article>
+        <article class="metric-card" id="encryption-card"><div class="metric-head"><span>DISK ENCRYPTION</span><span id="encryption-state" class="metric-state">--</span></div><p id="encryption-detail">Waiting</p></article>
+        <article class="metric-card" id="updates-card"><div class="metric-head"><span>UPDATES</span><span id="updates-state" class="metric-state">--</span></div><p id="updates-detail">Waiting</p></article>
+        <article class="metric-card" id="admin-card"><div class="metric-head"><span>PRIVILEGE</span><span id="admin-state" class="metric-state">--</span></div><p id="admin-detail">Waiting</p></article>
+      </div>
+      <section class="overview-panel"><div class="section-heading"><div><p class="kicker">EXPOSURE</p><h2>Listening ports</h2></div><span id="ports-count" class="soft-label">-- open</span></div><div class="table-wrap"><table><thead><tr><th>PORT</th><th>ADDRESS</th><th>PROCESS</th><th>RISK</th></tr></thead><tbody id="ports-body"><tr><td colspan="4" class="empty-state">Loading listening ports...</td></tr></tbody></table></div></section>
       </section>
       <section id="alerts" class="tab"><header class="page-heading"><div><p class="kicker">EVENT STREAM / LOCAL RULES</p><h1>Alert history</h1><p class="subheading">Persistent signals detected by the local rules engine.</p></div><button id="refresh-alerts" class="ghost-button">Refresh history</button></header><div class="table-wrap"><table><thead><tr><th>TIME</th><th>SEVERITY</th><th>CATEGORY</th><th>DESCRIPTION</th><th></th></tr></thead><tbody id="alerts-body"><tr><td colspan="5" class="empty-state">Loading alert history...</td></tr></tbody></table></div></section>
       <section id="technician" class="tab"><header class="page-heading"><div><p class="kicker">ASSISTED RESPONSE / GROQ</p><h1>Ask Technician</h1><p class="subheading">Describe what you are seeing and get grounded, step-by-step help.</p></div></header><div class="chat-layout"><section class="chat-panel"><div id="chat-messages" class="chat-messages"><div class="chat-message assistant">I am ready to help interpret this device's live health signals. What would you like to understand?</div></div><form id="chat-form"><input id="chat-input" autocomplete="off" placeholder="Why is my memory usage high?" aria-label="Ask the technician"><button type="submit">Send</button></form></section><aside class="context-panel"><p class="kicker">LIVE CONTEXT</p><h2>What I can see</h2><dl><div><dt>HOST</dt><dd id="chat-host">--</dd></div><div><dt>CPU</dt><dd id="chat-cpu">--</dd></div><div><dt>MEMORY</dt><dd id="chat-ram">--</dd></div><div><dt>DISK</dt><dd id="chat-disk">--</dd></div></dl></aside></div></section>
