@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+.env
+*.db
+agent_builds/
+agent_build_work/
+*.exe
+dist/
+build/
+*.spec

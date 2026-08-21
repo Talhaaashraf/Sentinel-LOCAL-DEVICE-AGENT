@@ -1,0 +1,4 @@
+psutil
+requests
+# only needed to build the installer, not needed to just run the agent
+pyinstaller

@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+psutil
+groq
+python-dotenv
+websockets

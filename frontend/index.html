@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sentinel Device Health</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">S</span><div><strong>Sentinel</strong><small>LOCAL DEVICE AGENT</small></div></div>
+      <nav aria-label="Primary navigation">
+        <button class="nav-item active" data-tab="dashboard"><span>01</span>Dashboard</button>
+        <button class="nav-item" data-tab="alerts"><span>02</span>Alerts <b id="alert-count">0</b></button>
+        <button class="nav-item" data-tab="technician"><span>03</span>Ask Technician</button>
+        <button class="nav-item" data-tab="agents"><span>04</span>Agents <b id="agent-count">0</b></button>
+      </nav>
+      <div id="connection-state" class="connection-state"><span id="connection-dot"></span><div><strong id="connection-label">Connecting</strong><small id="connection-detail">Opening monitor stream</small></div></div>
+      <p class="sidebar-note">A private, local-first health monitor for this Windows device.</p>
+    </aside>
+    <main class="content">
+      <div id="ai-banner" class="ai-banner hidden"><span>AI TECHNICIAN</span><strong>Unavailable</strong><p>Set <code>GROQ_API_KEY</code> in `.env` to enable diagnosis and chat. Local monitoring remains active.</p></div>
+      <section id="dashboard" class="tab active-tab">
+        <header class="page-heading"><div><p class="kicker">DEVICE / LIVE MONITOR</p><h1>System overview</h1><p class="subheading">Real-time signals from this endpoint.</p></div><span id="last-updated" class="timestamp">Waiting for telemetry</span></header>
+        <div id="health-banner" class="health-banner loading"><span class="health-pulse"></span><div><small>OVERALL HEALTH</small><strong id="health-title">Evaluating system</strong><p id="health-message">Connecting to the local rules engine...</p></div></div>
+        <div class="metric-grid">
+          <article class="metric-card"><div class="metric-head"><span>CPU LOAD</span><span id="cpu-state" class="metric-state">--</span></div><div class="gauge" id="cpu-gauge"><strong id="cpu-value">--</strong><small>%</small></div><p id="cpu-detail">Waiting</p></article>
+          <article class="metric-card"><div class="metric-head"><span>MEMORY</span><span id="ram-state" class="metric-state">--</span></div><div class="gauge" id="ram-gauge"><strong id="ram-value">--</strong><small>%</small></div><p id="ram-detail">Waiting</p></article>
+          <article class="metric-card"><div class="metric-head"><span>DISK CAPACITY</span><span id="disk-state" class="metric-state">--</span></div><div class="gauge" id="disk-gauge"><strong id="disk-value">--</strong><small>%</small></div><p id="disk-detail">Waiting</p></article>
+          <article class="metric-card"><div class="metric-head"><span>NETWORK</span><span id="network-state" class="metric-state">--</span></div><div class="metric-number" id="network-value">--</div><p id="network-detail">Waiting</p></article>
+          <article class="metric-card"><div class="metric-head"><span>BATTERY</span><span id="battery-state" class="metric-state">--</span></div><div class="metric-number" id="battery-value">--</div><p id="battery-detail">Waiting</p></article>
+        </div>
+        <section class="overview-panel"><div class="section-heading"><div><p class="kicker">ENDPOINT IDENTITY</p><h2>System overview</h2></div><span id="process-count" class="soft-label">-- processes</span></div><div class="overview-grid"><div><small>HOSTNAME</small><strong id="hostname">--</strong></div><div><small>OPERATING SYSTEM</small><strong id="os-name">--</strong></div><div><small>UPTIME</small><strong id="uptime">--</strong></div><div><small>ARCHITECTURE</small><strong id="architecture">--</strong></div></div></section>
+      </section>
+      <section id="alerts" class="tab"><header class="page-heading"><div><p class="kicker">EVENT STREAM / LOCAL RULES</p><h1>Alert history</h1><p class="subheading">Persistent signals detected by the local rules engine.</p></div><button id="refresh-alerts" class="ghost-button">Refresh history</button></header><div class="table-wrap"><table><thead><tr><th>TIME</th><th>SEVERITY</th><th>CATEGORY</th><th>DESCRIPTION</th><th></th></tr></thead><tbody id="alerts-body"><tr><td colspan="5" class="empty-state">Loading alert history...</td></tr></tbody></table></div></section>
+      <section id="technician" class="tab"><header class="page-heading"><div><p class="kicker">ASSISTED RESPONSE / GROQ</p><h1>Ask Technician</h1><p class="subheading">Describe what you are seeing and get grounded, step-by-step help.</p></div></header><div class="chat-layout"><section class="chat-panel"><div id="chat-messages" class="chat-messages"><div class="chat-message assistant">I am ready to help interpret this device's live health signals. What would you like to understand?</div></div><form id="chat-form"><input id="chat-input" autocomplete="off" placeholder="Why is my memory usage high?" aria-label="Ask the technician"><button type="submit">Send</button></form></section><aside class="context-panel"><p class="kicker">LIVE CONTEXT</p><h2>What I can see</h2><dl><div><dt>HOST</dt><dd id="chat-host">--</dd></div><div><dt>CPU</dt><dd id="chat-cpu">--</dd></div><div><dt>MEMORY</dt><dd id="chat-ram">--</dd></div><div><dt>DISK</dt><dd id="chat-disk">--</dd></div></dl></aside></div></section>
+      <section id="agents" class="tab"><header class="page-heading"><div><p class="kicker">FLEET / REMOTE ENDPOINTS</p><h1>Agents</h1><p class="subheading">One central view of every connected device.</p></div><button id="add-agent-button" class="primary-button">Add new device</button></header><div id="agents-grid" class="agents-grid"><div class="empty-state">Loading registered devices...</div></div><section id="device-detail" class="device-detail hidden"></section></section>
+    </main>
+  </div>
+  <div id="agent-modal" class="modal hidden"><div class="modal-card"><button id="close-agent-modal" class="modal-close" aria-label="Close">x</button><p class="kicker">PROVISION / NEW ENDPOINT</p><h2>Connect a device</h2><p class="modal-copy">Generate a one-time token, then install the lightweight agent on the remote machine.</p><input id="admin-key-input" class="admin-key-input" type="password" placeholder="Admin API key" autocomplete="off"><button id="generate-token-button" class="primary-button">Generate agent token</button><div id="token-result" class="token-result hidden"></div><div class="platform-tabs"><button data-platform="windows" class="platform-tab active">Windows</button><button data-platform="mac" class="platform-tab">macOS</button><button data-platform="linux" class="platform-tab">Linux</button></div><div id="install-instructions" class="install-instructions">Generate a token to show install instructions.</div><button id="download-agent-button" class="ghost-button" disabled>Download agent</button></div></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

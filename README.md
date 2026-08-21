@@ -1,0 +1,75 @@
+# Sentinel Device Health Monitor
+
+A local, Wazuh-inspired device health dashboard for Windows. FastAPI and `psutil` continuously collect telemetry, a local rules engine persists alerts in SQLite, and an optional Groq technician explains issues in plain language.
+
+## Windows / VS Code setup
+
+Open the `Project-tool1` folder in VS Code and run these commands in its terminal:
+
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+To enable the AI technician, create a Groq account at `https://console.groq.com/keys`, create an API key, and put it in `.env`:
+
+```text
+GROQ_API_KEY=your_actual_key
+GROQ_MODEL=openai/gpt-oss-20b
+ADMIN_API_KEY=replace_with_a_long_random_admin_key
+```
+
+## Local network security
+
+This server is designed for local-network use only. It does not provide built-in HTTPS/TLS. Do not expose it directly to the public internet. If remote access is required, put a reverse proxy such as nginx or Caddy with HTTPS, authentication, and appropriate firewall rules in front of it.
+
+Uvicorn should bind to `127.0.0.1` by default:
+
+```powershell
+uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+Only bind to `0.0.0.0` or a LAN address when you understand the exposure and have network controls in place. Set `ADMIN_API_KEY` in `.env`; the Agents provisioning endpoint requires it in the `X-Admin-Key` header.
+
+Keep `.env` private. `GROQ_MODEL` is optional and defaults to `openai/gpt-oss-20b`; set it when you need to switch models. The monitor, rules engine, WebSocket, and alert history work without `GROQ_API_KEY`; only AI diagnosis and chat are disabled.
+
+## Run
+
+```powershell
+uvicorn backend.main:app --reload
+```
+
+Open `http://127.0.0.1:8000` in a browser. The dashboard opens a WebSocket at `/ws/monitor` and refreshes live snapshots every five seconds. The REST endpoints include:
+
+- `GET /api/diagnostics`
+- `GET /api/diagnostics/health`
+- `GET /api/alerts`
+- `POST /api/agent/diagnose`
+- `GET` and `POST /api/agent/chat`
+- `POST /api/agent/action`
+
+## Add remote agents
+
+Open the **Agents** tab and choose **Add new device**. Click **Generate agent token**, then copy the token into the remote machine's `agent/agent_config.json`:
+
+```json
+{
+	"server_url": "http://central-server:8000",
+	"AGENT_TOKEN": "token-from-the-dashboard",
+	"nickname": "Finance laptop",
+	"interval_seconds": 10
+}
+```
+
+The agent can run from source on Windows, macOS, or Linux:
+
+```powershell
+pip install -r agent_requirements.txt
+python monitor_agent.py
+```
+
+Use the platform installer helpers in `agent/` for background startup. For binaries, build on the target operating system with PyInstaller and place them under `agent_builds/`; PyInstaller does not cross-compile. The central server marks devices offline after 30 seconds without a report and keeps device-scoped snapshots and alerts in SQLite.
+
+All local actions are explicitly whitelisted and read-only. No command execution, file deletion, or process termination is performed. The earlier `device_diagnostic.py` command-line tool remains available if needed.
