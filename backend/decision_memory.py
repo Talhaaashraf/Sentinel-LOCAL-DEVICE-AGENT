@@ -127,7 +127,8 @@ def search(query, limit=3, os_type=None):
 
     def vector(tokens):
         counts = Counter(tokens)
-        return {token: count * math.log((1 + total) / (1 + frequency.get(token, 0))) for token, count in counts.items()}
+        # +1 smoothing so terms still carry weight when few cases exist (idf would be 0).
+        return {token: count * (math.log((1 + total) / (1 + frequency.get(token, 0))) + 1) for token, count in counts.items()}
 
     query_vector = vector(_tokens(query))
     query_norm = math.sqrt(sum(value * value for value in query_vector.values())) or 1

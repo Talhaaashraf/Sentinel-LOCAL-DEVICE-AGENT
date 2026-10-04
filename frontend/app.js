@@ -558,9 +558,8 @@ async function generateToken() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'Admin authentication failed');
     generatedToken = data.token;
-    result.textContent = `${generatedToken} (expires ${new Date(data.expires_at).toLocaleString()})`;
+    result.textContent = `Token: ${generatedToken} (expires ${new Date(data.expires_at).toLocaleString()})`;
     result.classList.remove('hidden');
-    $('download-agent-button').disabled = false;
     updateInstallInstructions();
   } catch (error) {
     result.textContent = error.message;
@@ -568,15 +567,25 @@ async function generateToken() {
   }
 }
 
+function installCommand() {
+  const origin = location.origin;
+  const persist = $('install-persist') && $('install-persist').checked ? '&persist=1' : '';
+  if (selectedPlatform === 'windows') {
+    return `irm "${origin}/install.ps1?t=${generatedToken}${persist}" | iex`;
+  }
+  return `curl -fsSL "${origin}/install.sh?t=${generatedToken}${persist}" | sh`;
+}
+
 function updateInstallInstructions() {
+  const target = $('install-oneliner');
+  if (!target) return;
   if (!generatedToken) {
-    $('install-instructions').textContent = 'Generate a token to show install instructions.';
+    target.textContent = 'Generate a token to show the install command.';
+    if ($('copy-install')) $('copy-install').disabled = true;
     return;
   }
-  const binaryName = selectedPlatform === 'windows' ? 'DeviceHealthAgent.exe' : 'DeviceHealthAgent';
-  $('install-instructions').textContent =
-    `${binaryName}: place agent_config.json beside it (built from agent_config.example.json) with server_url=http://127.0.0.1:8000 and token=${generatedToken}. ` +
-    `Fallback: pip install -r agent_requirements.txt && python monitor_agent.py`;
+  target.textContent = installCommand();
+  if ($('copy-install')) $('copy-install').disabled = false;
 }
 
 function openAgentModal() {
@@ -625,6 +634,11 @@ const TAB_LOADERS = {
   performance: loadPerformance,
   logs: loadEventLogs,
 };
+
+// Exposed so diagnose.js (a separate classic script) can register its own tab
+// loaders and reuse the install-command renderer.
+window.TAB_LOADERS = TAB_LOADERS;
+window.updateInstallInstructions = updateInstallInstructions;
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach((element) => element.classList.toggle('active-tab', element.id === tab));

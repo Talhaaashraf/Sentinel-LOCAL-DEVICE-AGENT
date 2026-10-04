@@ -1,6 +1,64 @@
-# Sentinel — AI-Powered Device Health Monitor
+# Sentinel — AI-Powered Device Health Monitor & Remote Diagnostic Tool
 
-A local, Wazuh-inspired, AI-assisted device health and security dashboard for Windows, macOS, and Linux. FastAPI and `psutil` continuously collect telemetry, a local rules engine persists alerts in SQLite, and an optional Groq technician explains issues — including OS event log entries — in plain language.
+A local, Wazuh-inspired, AI-assisted tool for **diagnosing and repairing** Windows, macOS and
+Linux laptops from one web dashboard. FastAPI and `psutil` collect telemetry, a local rules
+engine persists alerts in SQLite, and an LLM "brain" (local Ollama by default, free) diagnoses
+problems, runs read-only checks itself, and proposes fixes you approve.
+
+## Diagnose & repair laptops (agentic)
+
+Paste one line on a target laptop on the same network; it connects back and you diagnose it from
+the dashboard.
+
+1. **Add a laptop.** Agents tab → *Add new device* → *Generate agent token*. Copy the one-liner:
+   - Windows: `irm "http://SERVER:PORT/install.ps1?t=TOKEN" | iex`
+   - Linux/macOS: `curl -fsSL "http://SERVER:PORT/install.sh?t=TOKEN" | sh`
+
+   It downloads the agent from your server, configures it, and connects out — **no inbound ports
+   or firewall changes** on the laptop. Add `&persist=1` to keep it running after reboot.
+2. **Diagnose (AI) tab.** Pick the laptop, type the problem (typos are fine) or click a preset
+   (browser RAM, storage spike, CPU spike, hanging, OS corrupt, stuck uninstall, updates, …). The
+   AI runs **read-only** checks, shows its steps, recalls similar past cases, and concludes with a
+   ranked list of fixes.
+3. **Approve fixes.** Anything that changes the laptop — end a process, force-uninstall a stuck
+   app, remove an orphaned Control-Panel entry, `sfc`/`DISM` repair, install updates, clean junk,
+   reset the network — runs **only after you click Approve**. Every command is logged.
+4. **Stress Test tab.** CPU, RAM, disk and network tests with live progress; auto-stops on
+   overheating.
+5. **Decisions tab.** Every closed diagnosis is saved (symptom → root cause → actions → outcome)
+   and recalled for similar future problems. Design decisions live as ADRs in `decisions/`.
+
+### The AI brain (free, local)
+
+Default is **Ollama** with `qwen2.5:3b-instruct` — runs on a CPU-only PC with 16 GB RAM and
+supports tool calling. Install from <https://ollama.com>, then:
+
+```
+ollama pull qwen2.5:3b-instruct
+```
+
+Set `LLM_PROVIDER`, `OLLAMA_MODEL` (or `GROQ_API_KEY` for the cloud option) in `.env`. If no LLM
+is available, a built-in **rule-based engine** still diagnoses and proposes fixes, so the tool
+always works.
+
+### Safety
+
+Tools are an allowlisted catalog (`agent/tool_catalog.json`) tagged read / change / stress /
+shell. The server decides what needs approval from its own copy of the catalog. Raw shell is
+disabled unless `ALLOW_REMOTE_SHELL=true`. Risky Windows changes back up first (registry export,
+folder quarantine, restore point). See `decisions/` for the reasoning.
+
+### Windows note
+
+Windows-specific tools (DISM/SFC, registry uninstall entries, Windows Update API, `powercfg`
+battery report, SMART) can't run in a Linux CI container, so they're covered by parser/logic tests
+and should be smoke-tested on a real Windows laptop with the PowerShell one-liner above.
+
+---
+
+## Original monitor
+
+A local, Wazuh-inspired, AI-assisted device health and security dashboard for Windows, macOS, and Linux. FastAPI and `psutil` continuously collect telemetry, a local rules engine persists alerts in SQLite, and an AI technician (Ollama by default, Groq optional) explains issues — including OS event log entries — in plain language.
 
 ## Windows / VS Code setup
 

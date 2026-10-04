@@ -116,8 +116,11 @@ def snapshot_with_alerts(report):
 async def start_monitor():
     logger.info("Registered FastAPI routes:")
     for route in app.routes:
+        path = getattr(route, "path", None)
+        if not path:
+            continue
         methods = ",".join(sorted(getattr(route, "methods", set()) or []))
-        route_line = f"  {methods or 'WEBSOCKET'} {route.path}"
+        route_line = f"  {methods or 'WEBSOCKET'} {path}"
         logger.info(route_line)
         print(route_line, flush=True)
     if auth_enabled():

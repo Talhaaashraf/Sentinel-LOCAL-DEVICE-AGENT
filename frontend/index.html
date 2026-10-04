@@ -20,12 +20,15 @@
 
       <nav aria-label="Primary navigation">
         <button class="nav-item active" data-tab="dashboard"><span>01</span>Dashboard</button>
-        <button class="nav-item" data-tab="alerts"><span>02</span>Alerts <b id="alert-count">0</b></button>
-        <button class="nav-item" data-tab="security"><span>03</span>Security</button>
-        <button class="nav-item" data-tab="performance"><span>04</span>Performance</button>
-        <button class="nav-item" data-tab="logs"><span>05</span>Event Logs</button>
-        <button class="nav-item" data-tab="technician"><span>06</span>Ask Technician</button>
-        <button class="nav-item" data-tab="agents"><span>07</span>Agents <b id="agent-count">0</b></button>
+        <button class="nav-item" data-tab="diagnose"><span>02</span>Diagnose (AI)</button>
+        <button class="nav-item" data-tab="stress"><span>03</span>Stress Test</button>
+        <button class="nav-item" data-tab="decisions"><span>04</span>Decisions</button>
+        <button class="nav-item" data-tab="alerts"><span>05</span>Alerts <b id="alert-count">0</b></button>
+        <button class="nav-item" data-tab="security"><span>06</span>Security</button>
+        <button class="nav-item" data-tab="performance"><span>07</span>Performance</button>
+        <button class="nav-item" data-tab="logs"><span>08</span>Event Logs</button>
+        <button class="nav-item" data-tab="technician"><span>09</span>Ask Technician</button>
+        <button class="nav-item" data-tab="agents"><span>10</span>Agents <b id="agent-count">0</b></button>
       </nav>
 
       <div id="connection-state" class="connection-state">
@@ -41,9 +44,9 @@
 
     <main class="content">
       <div id="ai-banner" class="ai-banner hidden">
-        <span>AI TECHNICIAN</span>
-        <strong>Unavailable</strong>
-        <p>Set <code>GROQ_API_KEY</code> in `.env` to enable diagnosis and chat. Local monitoring remains active.</p>
+        <span>AI BRAIN</span>
+        <strong>Offline — using rule-based diagnosis</strong>
+        <p>Install <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> and run <code>ollama pull qwen2.5:3b-instruct</code> (free, local), or set <code>GROQ_API_KEY</code> in <code>.env</code>. Monitoring and rule-based diagnosis work without it.</p>
       </div>
 
       <!-- ============================== DASHBOARD ============================== -->
@@ -106,6 +109,120 @@
             <div><small>ARCHITECTURE</small><strong id="architecture">--</strong></div>
           </div>
         </section>
+      </section>
+
+      <!-- ============================== DIAGNOSE (AI) ============================== -->
+      <section id="diagnose" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">AGENTIC DIAGNOSIS / LLM BRAIN</p>
+            <h1>Diagnose a laptop</h1>
+            <p class="subheading">Describe the problem (typos are fine) or pick a preset. The AI runs read-only checks, then proposes fixes you approve.</p>
+          </div>
+          <span id="diagnose-llm" class="soft-label">Checking AI…</span>
+        </header>
+
+        <div class="diagnose-controls">
+          <label class="field"><span>Target laptop</span>
+            <select id="diagnose-device"><option value="">Loading devices…</option></select>
+          </label>
+          <div class="field grow"><span>What is the problem?</span>
+            <div class="inline-form">
+              <input id="diagnose-problem" placeholder="e.g. chrome using a lot of ram and laptop hanging" autocomplete="off">
+              <button id="diagnose-start" class="primary-button">Diagnose</button>
+            </div>
+          </div>
+        </div>
+        <div id="diagnose-presets" class="preset-row"></div>
+        <p id="diagnose-correction" class="soft-label"></p>
+
+        <section id="diagnose-session" class="overview-panel hidden">
+          <div class="section-heading">
+            <div><p class="kicker">INVESTIGATION</p><h2 id="diagnose-status">Working…</h2></div>
+            <span id="diagnose-mode" class="soft-label"></span>
+          </div>
+          <div id="diagnose-memory" class="memory-box hidden"></div>
+          <div id="diagnose-steps" class="steps"></div>
+          <div id="diagnose-conclusion" class="diagnosis hidden"></div>
+
+          <div id="diagnose-fixes-wrap" class="hidden">
+            <h3 class="fixes-title">Proposed fixes — approve to run</h3>
+            <div id="diagnose-fixes" class="fixes"></div>
+          </div>
+
+          <div id="diagnose-outcome" class="outcome-row hidden">
+            <span>Did this resolve the issue?</span>
+            <button class="ghost-button" data-outcome="fixed">Fixed</button>
+            <button class="ghost-button" data-outcome="partial">Partly</button>
+            <button class="ghost-button" data-outcome="not_fixed">Not fixed</button>
+          </div>
+        </section>
+      </section>
+
+      <!-- ============================== STRESS TEST ============================== -->
+      <section id="stress" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">PERFORMANCE / BURN-IN</p>
+            <h1>Stress test</h1>
+            <p class="subheading">Push CPU, RAM, disk or network to check stability and spot throttling. Auto-stops on overheating.</p>
+          </div>
+        </header>
+        <div class="diagnose-controls">
+          <label class="field"><span>Target laptop</span>
+            <select id="stress-device"><option value="">Loading devices…</option></select>
+          </label>
+        </div>
+        <div class="stress-grid">
+          <article class="metric-card">
+            <div class="metric-head"><span>CPU</span></div>
+            <p>All cores, with temperature and clock.</p>
+            <label class="mini-field">Seconds <input id="stress-cpu-seconds" type="number" value="60" min="10" max="900"></label>
+            <button class="primary-button" data-stress="stress_cpu">Run CPU test</button>
+          </article>
+          <article class="metric-card">
+            <div class="metric-head"><span>RAM</span></div>
+            <p>Allocate and verify memory patterns.</p>
+            <label class="mini-field">% of free <input id="stress-ram-percent" type="number" value="60" min="10" max="85"></label>
+            <button class="primary-button" data-stress="stress_ram">Run RAM test</button>
+          </article>
+          <article class="metric-card">
+            <div class="metric-head"><span>DISK</span></div>
+            <p>Sequential MB/s and random IOPS.</p>
+            <label class="mini-field">Size MB <input id="stress-disk-size" type="number" value="1024" min="64" max="8192"></label>
+            <button class="primary-button" data-stress="stress_disk">Run disk test</button>
+          </article>
+          <article class="metric-card">
+            <div class="metric-head"><span>NETWORK</span></div>
+            <p>Throughput to this server.</p>
+            <label class="mini-field">Size MB <input id="stress-net-size" type="number" value="50" min="5" max="500"></label>
+            <button class="primary-button" data-stress="network_speed">Run network test</button>
+          </article>
+        </div>
+        <section id="stress-result" class="overview-panel hidden">
+          <div class="section-heading"><div><p class="kicker">RESULT</p><h2 id="stress-title">Running…</h2></div>
+            <button id="stress-cancel" class="ghost-button hidden">Stop</button></div>
+          <div id="stress-progress" class="steps"></div>
+          <pre id="stress-output" class="output-box"></pre>
+        </section>
+      </section>
+
+      <!-- ============================== DECISIONS ============================== -->
+      <section id="decisions" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">MEMORY / KNOWLEDGE BASE</p>
+            <h1>Decisions</h1>
+            <p class="subheading">Every diagnosis is remembered here, and so is every design decision behind this tool.</p>
+          </div>
+          <button id="refresh-decisions" class="ghost-button">Refresh</button>
+        </header>
+        <div class="decisions-tabs">
+          <button class="sub-tab active" data-sub="cases">Solved cases</button>
+          <button class="sub-tab" data-sub="adrs">Design decisions</button>
+        </div>
+        <div id="decisions-cases" class="decisions-list"><div class="empty-state">Loading cases…</div></div>
+        <div id="decisions-adrs" class="decisions-list hidden"><div class="empty-state">Loading design decisions…</div></div>
       </section>
 
       <!-- ============================== SECURITY ============================== -->
@@ -275,11 +392,16 @@
         <button data-platform="mac" class="platform-tab">macOS</button>
         <button data-platform="linux" class="platform-tab">Linux</button>
       </div>
-      <div id="install-instructions" class="install-instructions">Generate a token to show install instructions.</div>
-      <button id="download-agent-button" class="ghost-button" disabled>Download agent</button>
+      <p class="modal-copy" style="margin-top:14px">Run this one line on the target laptop (same network). It downloads the agent from this server and connects back — no firewall change needed.</p>
+      <div id="install-oneliner" class="install-instructions">Generate a token to show the install command.</div>
+      <button id="copy-install" class="ghost-button" disabled>Copy command</button>
+      <label class="persist-toggle"><input type="checkbox" id="install-persist"> Keep running after reboot (installs a background task)</label>
+      <div id="install-instructions" class="install-instructions hidden"></div>
+      <button id="download-agent-button" class="hidden" disabled>Download agent</button>
     </div>
   </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/diagnose.js"></script>
 </body>
 </html>

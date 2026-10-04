@@ -9,3 +9,6 @@ agent_build_work/
 dist/
 build/
 *.spec
+agent/sentinel_backups/
+decisions/cases/*.md
+!decisions/cases/.gitkeep
