@@ -39,4 +39,9 @@ def has_valid_session(cookies):
     return hmac.compare_digest(cookies.get(SESSION_COOKIE_NAME, ""), session_token())
 
 
-PUBLIC_PATH_PREFIXES = ("/login", "/logout", "/static")
+# Install scripts, the agent bundle, and agent-facing endpoints must be reachable
+# without a dashboard session: the target laptop has no cookie, and agents
+# authenticate with their own bearer token (checked in the route, not here).
+PUBLIC_PATH_PREFIXES = ("/login", "/logout", "/static", "/install.ps1", "/install.sh",
+                        "/agent-bundle.zip", "/api/agents/register", "/api/agents/report",
+                        "/api/agents/commands", "/api/agents/speedtest")

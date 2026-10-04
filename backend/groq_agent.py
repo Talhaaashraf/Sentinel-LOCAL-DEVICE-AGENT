@@ -1,10 +1,12 @@
-"""Groq-backed technician with a clean failure boundary for local-only mode."""
+"""AI technician (Ollama by default, Groq optional) with a clean failure boundary for local-only mode."""
 
 import json
 import logging
 import os
 
 from dotenv import load_dotenv
+
+from . import llm_provider
 
 load_dotenv()
 
@@ -33,40 +35,21 @@ class AIUnavailableError(RuntimeError):
 
 
 class AIModelUnavailableError(AIUnavailableError):
-    """Raised when Groq rejects the configured model or request."""
+    """Raised when the provider rejects the configured model or request."""
 
-    public_error = "AI model unavailable, please check GROQ_MODEL in .env"
-
-
-def _client():
-    key = os.getenv("GROQ_API_KEY", "").strip()
-    if not key:
-        raise AIUnavailableError("AI technician unavailable: GROQ_API_KEY is not configured")
-    try:
-        from groq import Groq
-        return Groq(api_key=key)
-    except Exception as error:
-        raise AIUnavailableError(f"AI technician unavailable: {error}") from error
+    public_error = "AI model unavailable, please check OLLAMA_MODEL / GROQ_MODEL in .env"
 
 
 def is_ai_available():
-    return bool(os.getenv("GROQ_API_KEY", "").strip())
+    return llm_provider.is_available()
 
 
 def _completion(messages, structured=False):
-    kwargs = {"model": GROQ_MODEL, "messages": messages, "temperature": 0.2}
-    if structured:
-        kwargs["response_format"] = {"type": "json_object"}
+    """Route through the configured provider (Ollama by default, or Groq)."""
     try:
-        response = _client().chat.completions.create(**kwargs)
-        return response.choices[0].message.content
-    except Exception as error:
-        status_code = getattr(error, "status_code", None)
-        error_name = type(error).__name__
-        if error_name == "NotFoundError" or (status_code is not None and 400 <= status_code < 500):
-            logger.exception("Groq rejected model %s with a client error", GROQ_MODEL)
-            raise AIModelUnavailableError(AIModelUnavailableError.public_error) from error
-        logger.exception("Groq request failed for model %s", GROQ_MODEL)
+        return llm_provider.chat(messages, json_mode=structured)["content"]
+    except llm_provider.LLMUnavailableError as error:
+        logger.warning("AI technician request failed: %s", error)
         raise AIUnavailableError("AI technician is temporarily unavailable") from error
 
 

@@ -19,12 +19,17 @@ from .collectors import collect_report
 from .device_store import create_pending_token, delete_device, get_device_by_token, get_latest_report, list_devices, mark_offline_devices, register_device, save_report
 from .event_logs import collect_event_log_report
 from .groq_agent import AIModelUnavailableError, AIUnavailableError, chat, diagnose, diagnose_logs, is_ai_available
+from . import llm_provider
+from .diagnostics_api import router as diagnostics_router
+from .install_api import router as install_router
 from .performance_checks import collect_performance_report
 from .rules_engine import evaluate_event_log_rules, evaluate_performance_rules, evaluate_rules, evaluate_security_rules, health_from_report
 from .security_checks import collect_security_report
 
 app = FastAPI(title="Sentinel Device Health Monitor")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
+app.include_router(diagnostics_router)
+app.include_router(install_router)
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
@@ -460,8 +465,9 @@ def agent_action(payload: dict):
 
 @app.get("/api/agent/chat")
 def chat_status():
-    available = is_ai_available()
-    return {"available": available, "message": "AI technician ready" if available else "AI technician unavailable"}
+    info = llm_provider.status()
+    return {"available": info["available"], "provider": info["provider"], "model": info["model"],
+            "message": info["detail"]}
 
 
 @app.post("/api/agent/chat")
