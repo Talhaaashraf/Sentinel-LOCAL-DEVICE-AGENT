@@ -1,0 +1,445 @@
+{
+  "version": 1,
+  "kinds": {
+    "read": "Read-only diagnostic. Runs automatically, including when the AI asks for it.",
+    "change": "Changes the laptop. Always needs the technician's approval.",
+    "stress": "Load test that uses CPU, RAM, disk or network heavily. Always needs approval.",
+    "shell": "Raw command. Only when ALLOW_REMOTE_SHELL=true on the server, and always needs approval."
+  },
+  "tools": [
+    {
+      "name": "system_profile",
+      "kind": "read",
+      "title": "System profile",
+      "description": "OS, build, CPU model, RAM, disks, uptime, manufacturer/model/serial, admin rights and whether a reboot is pending.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 60,
+      "params": {}
+    },
+    {
+      "name": "top_processes",
+      "kind": "read",
+      "title": "Top processes",
+      "description": "Processes using the most CPU or memory, sampled over a few seconds.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 40,
+      "params": {
+        "sort": {"type": "string", "enum": ["cpu", "memory"], "default": "memory", "description": "Sort by cpu or memory."},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 15},
+        "sample_seconds": {"type": "integer", "minimum": 1, "maximum": 10, "default": 2}
+      }
+    },
+    {
+      "name": "browser_memory",
+      "kind": "read",
+      "title": "Browser memory",
+      "description": "Groups Chrome, Edge, Firefox, Brave, Opera and Safari processes; total RAM per browser, renderer/tab process counts and the heaviest child processes.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 40,
+      "params": {}
+    },
+    {
+      "name": "disk_usage",
+      "kind": "read",
+      "title": "Disk usage",
+      "description": "Every mounted volume with total, used and free space in bytes and percent.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 30,
+      "params": {}
+    },
+    {
+      "name": "largest_folders",
+      "kind": "read",
+      "title": "Largest folders",
+      "description": "Sizes of the sub-folders of a path, biggest first. Defaults to the user's home folder. Time-limited scan.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 120,
+      "params": {
+        "path": {"type": "string", "default": "", "description": "Folder to scan. Empty means the user's home folder."},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 15},
+        "max_seconds": {"type": "integer", "minimum": 5, "maximum": 90, "default": 30}
+      }
+    },
+    {
+      "name": "largest_files",
+      "kind": "read",
+      "title": "Largest files",
+      "description": "Biggest files under a path (default home folder) above a minimum size. Time-limited scan.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 120,
+      "params": {
+        "path": {"type": "string", "default": "", "description": "Folder to scan. Empty means the user's home folder."},
+        "min_mb": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 200},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+        "max_seconds": {"type": "integer", "minimum": 5, "maximum": 90, "default": 30}
+      }
+    },
+    {
+      "name": "storage_snapshot",
+      "kind": "read",
+      "title": "Storage snapshot (spike finder)",
+      "description": "Measures well-known folders (temp, downloads, caches, app data, update cache, dumps). The server compares it with the previous snapshot to show what grew.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 150,
+      "params": {
+        "max_seconds": {"type": "integer", "minimum": 10, "maximum": 120, "default": 60}
+      }
+    },
+    {
+      "name": "cleanup_candidates",
+      "kind": "read",
+      "title": "Cleanup candidates",
+      "description": "Reclaimable space: temp folders, browser caches, recycle bin/trash, Windows Update cache, crash dumps, Windows.old, hiberfil/pagefile size.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 120,
+      "params": {}
+    },
+    {
+      "name": "cpu_spike_watch",
+      "kind": "read",
+      "title": "CPU spike watch",
+      "description": "Samples CPU every second for N seconds and records which processes caused spikes above 80%.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 150,
+      "params": {
+        "seconds": {"type": "integer", "minimum": 5, "maximum": 120, "default": 20}
+      }
+    },
+    {
+      "name": "hang_and_crash_events",
+      "kind": "read",
+      "title": "Hangs, crashes and BSODs",
+      "description": "Application hangs/crashes, unexpected shutdowns, blue screens (minidumps), WHEA hardware errors, disk errors, kernel OOM/hung tasks and crash reports.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 90,
+      "params": {
+        "hours": {"type": "integer", "minimum": 1, "maximum": 720, "default": 168}
+      }
+    },
+    {
+      "name": "not_responding",
+      "kind": "read",
+      "title": "Not-responding processes",
+      "description": "Windows apps marked Not Responding; on Linux/macOS processes stuck in uninterruptible disk wait or zombies.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 40,
+      "params": {}
+    },
+    {
+      "name": "os_integrity_check",
+      "kind": "read",
+      "title": "OS integrity check",
+      "description": "Windows: DISM CheckHealth/ScanHealth, CBS log corruption summary, optional SFC verify. Linux: package audit and failed services. macOS: SIP and volume status.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 1500,
+      "params": {
+        "deep": {"type": "boolean", "default": false, "description": "Windows: also run DISM ScanHealth and sfc /verifyonly (10-20 minutes)."}
+      }
+    },
+    {
+      "name": "installed_apps",
+      "kind": "read",
+      "title": "Installed apps (incl. hidden/orphaned)",
+      "description": "All installed apps from every uninstall registry key plus Store apps on Windows; flags apps hidden from Control Panel and orphaned entries whose files are gone. Linux: dpkg/rpm/snap/flatpak. macOS: /Applications and Homebrew.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 120,
+      "params": {
+        "search": {"type": "string", "default": "", "description": "Filter by name/publisher (case-insensitive)."},
+        "include_store_apps": {"type": "boolean", "default": false},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 2000, "default": 400}
+      }
+    },
+    {
+      "name": "uninstall_leftovers",
+      "kind": "read",
+      "title": "Find app leftovers",
+      "description": "Searches for folders, registry keys, services, scheduled tasks and shortcuts left behind by an app (for apps that will not uninstall or keep coming back).",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 120,
+      "params": {
+        "name": {"type": "string", "required": true, "description": "App name or vendor, e.g. 'McAfee'."}
+      }
+    },
+    {
+      "name": "pending_updates",
+      "kind": "read",
+      "title": "Pending updates",
+      "description": "Available OS updates, last successful update and whether a reboot is required.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 300,
+      "params": {}
+    },
+    {
+      "name": "startup_items",
+      "kind": "read",
+      "title": "Startup items",
+      "description": "Programs that start at logon (Run keys, Startup folders, autostart entries, LaunchAgents).",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 60,
+      "params": {}
+    },
+    {
+      "name": "services",
+      "kind": "read",
+      "title": "Services",
+      "description": "System services with state and start type.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 60,
+      "params": {
+        "state": {"type": "string", "enum": ["all", "running", "stopped", "failed"], "default": "all"},
+        "search": {"type": "string", "default": ""}
+      }
+    },
+    {
+      "name": "driver_problems",
+      "kind": "read",
+      "title": "Driver problems",
+      "description": "Devices with driver errors (Device Manager yellow bang) or kernel driver/firmware errors.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 60,
+      "params": {}
+    },
+    {
+      "name": "disk_health",
+      "kind": "read",
+      "title": "Disk health (SMART)",
+      "description": "Physical disk health status, wear, temperature and read/write error counters.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 60,
+      "params": {}
+    },
+    {
+      "name": "battery_health",
+      "kind": "read",
+      "title": "Battery health",
+      "description": "Charge, design vs full-charge capacity (wear %), cycle count.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 60,
+      "params": {}
+    },
+    {
+      "name": "network_check",
+      "kind": "read",
+      "title": "Network check",
+      "description": "Adapters, default gateway, ping to gateway and internet, DNS resolution and latency to this server.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 90,
+      "params": {
+        "target_host": {"type": "string", "default": "", "description": "Optional extra host to ping/resolve."}
+      }
+    },
+    {
+      "name": "temperatures",
+      "kind": "read",
+      "title": "Temperatures and clocks",
+      "description": "CPU/thermal-zone temperatures, fan speeds and current vs max CPU clock (throttling hint).",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 40,
+      "params": {}
+    },
+    {
+      "name": "event_log_summary",
+      "kind": "read",
+      "title": "Event log summary",
+      "description": "Recent warning/error/critical OS log entries.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 60,
+      "params": {}
+    },
+    {
+      "name": "security_status",
+      "kind": "read",
+      "title": "Security status",
+      "description": "Firewall, antivirus, disk encryption, patch status and listening ports.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 90,
+      "params": {}
+    },
+    {
+      "name": "kill_process",
+      "kind": "change",
+      "title": "End process",
+      "description": "Ends a process by PID or by name (all matching processes). Unsaved work in that app is lost.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 30,
+      "params": {
+        "pid": {"type": "integer", "minimum": 1, "default": 0},
+        "name": {"type": "string", "default": "", "description": "Process name, e.g. chrome.exe"},
+        "include_children": {"type": "boolean", "default": true}
+      }
+    },
+    {
+      "name": "service_control",
+      "kind": "change",
+      "title": "Start/stop/restart service",
+      "description": "Starts, stops or restarts a system service.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 90,
+      "params": {
+        "name": {"type": "string", "required": true},
+        "action": {"type": "string", "enum": ["start", "stop", "restart"], "default": "restart"}
+      }
+    },
+    {
+      "name": "disable_startup_item",
+      "kind": "change",
+      "title": "Disable startup item",
+      "description": "Stops an item from running at logon. The original entry is backed up so it can be restored.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 30,
+      "params": {
+        "item_id": {"type": "string", "required": true, "description": "The id field from startup_items."}
+      }
+    },
+    {
+      "name": "clean_junk",
+      "kind": "change",
+      "title": "Clean junk files",
+      "description": "Deletes temporary files, browser caches, recycle bin/trash, Windows Update download cache, thumbnail cache or crash dumps. Files in use are skipped.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 900,
+      "params": {
+        "targets": {"type": "array", "items": {"type": "string", "enum": ["temp", "browser_cache", "recycle_bin", "update_cache", "crash_dumps", "thumbnails"]}, "default": ["temp"]}
+      }
+    },
+    {
+      "name": "repair_os",
+      "kind": "change",
+      "title": "Repair OS",
+      "description": "Windows: sfc /scannow, DISM RestoreHealth, DISM StartComponentCleanup or chkdsk online scan. Linux: dpkg --configure -a / apt-get -f install. macOS: diskutil verifyVolume.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 3600,
+      "params": {
+        "step": {"type": "string", "enum": ["sfc", "dism_restorehealth", "dism_component_cleanup", "chkdsk_scan", "package_repair", "verify_volume"], "required": true}
+      }
+    },
+    {
+      "name": "uninstall_app",
+      "kind": "change",
+      "title": "Uninstall app (incl. force)",
+      "description": "Uninstalls an app found by installed_apps. mode=force also removes stubborn apps: silent uninstaller, msiexec, then ends its processes, quarantines its folder and removes its registry entry (backed up).",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 1200,
+      "params": {
+        "app_id": {"type": "string", "required": true, "description": "The id field from installed_apps."},
+        "mode": {"type": "string", "enum": ["standard", "force"], "default": "standard"}
+      }
+    },
+    {
+      "name": "remove_app_entry",
+      "kind": "change",
+      "title": "Remove orphaned app entry",
+      "description": "Windows: deletes a broken/orphaned uninstall registry entry (exported to a .reg backup first) so it disappears from Apps & Features.",
+      "platforms": ["windows"],
+      "timeout": 30,
+      "params": {
+        "app_id": {"type": "string", "required": true}
+      }
+    },
+    {
+      "name": "install_updates",
+      "kind": "change",
+      "title": "Install updates",
+      "description": "Downloads and installs available OS updates (Windows Update API, apt/dnf, softwareupdate). May need a reboot afterwards.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 7200,
+      "params": {
+        "include_drivers": {"type": "boolean", "default": false}
+      }
+    },
+    {
+      "name": "network_repair",
+      "kind": "change",
+      "title": "Network repair",
+      "description": "Flush DNS, renew DHCP lease, reset Winsock or TCP/IP stack (the last two need a reboot).",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 120,
+      "params": {
+        "actions": {"type": "array", "items": {"type": "string", "enum": ["flush_dns", "renew_ip", "reset_winsock", "reset_tcpip"]}, "default": ["flush_dns"]}
+      }
+    },
+    {
+      "name": "create_restore_point",
+      "kind": "change",
+      "title": "Create restore point",
+      "description": "Creates a Windows System Restore point before risky changes.",
+      "platforms": ["windows"],
+      "timeout": 300,
+      "params": {
+        "description": {"type": "string", "default": "Sentinel before repair"}
+      }
+    },
+    {
+      "name": "schedule_reboot",
+      "kind": "change",
+      "title": "Reboot",
+      "description": "Restarts the laptop after a delay (the user sees a warning). The agent reconnects after boot only in persistent mode.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 30,
+      "params": {
+        "delay_seconds": {"type": "integer", "minimum": 30, "maximum": 3600, "default": 120}
+      }
+    },
+    {
+      "name": "stress_cpu",
+      "kind": "stress",
+      "title": "CPU stress test",
+      "description": "Loads all (or N) CPU cores and records load, clock speed and temperature every second to reveal throttling or instability. Auto-stops on overheating.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 1000,
+      "params": {
+        "seconds": {"type": "integer", "minimum": 10, "maximum": 900, "default": 60},
+        "workers": {"type": "integer", "minimum": 0, "maximum": 256, "default": 0, "description": "0 = all logical cores."},
+        "max_temp_c": {"type": "integer", "minimum": 60, "maximum": 105, "default": 95}
+      }
+    },
+    {
+      "name": "stress_ram",
+      "kind": "stress",
+      "title": "RAM stress test",
+      "description": "Allocates a share of free RAM, writes and verifies patterns repeatedly and reports any mismatches (possible faulty RAM) and allocation speed.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 1000,
+      "params": {
+        "percent_of_free": {"type": "integer", "minimum": 10, "maximum": 85, "default": 60},
+        "seconds": {"type": "integer", "minimum": 10, "maximum": 900, "default": 60}
+      }
+    },
+    {
+      "name": "stress_disk",
+      "kind": "stress",
+      "title": "Disk benchmark",
+      "description": "Writes and reads a temporary file: sequential MB/s and random 4K IOPS. The file is deleted afterwards.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 900,
+      "params": {
+        "size_mb": {"type": "integer", "minimum": 64, "maximum": 8192, "default": 1024},
+        "random_seconds": {"type": "integer", "minimum": 3, "maximum": 60, "default": 10}
+      }
+    },
+    {
+      "name": "network_speed",
+      "kind": "stress",
+      "title": "Network speed to server",
+      "description": "Measures download and upload throughput and latency between the laptop and this server over the LAN.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 300,
+      "params": {
+        "size_mb": {"type": "integer", "minimum": 5, "maximum": 500, "default": 50}
+      }
+    },
+    {
+      "name": "run_shell",
+      "kind": "shell",
+      "title": "Run command",
+      "description": "Runs a raw command (PowerShell, cmd or sh). Disabled unless ALLOW_REMOTE_SHELL=true on the server.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 600,
+      "params": {
+        "command": {"type": "string", "required": true},
+        "shell": {"type": "string", "enum": ["powershell", "cmd", "sh"], "default": "powershell"},
+        "timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600, "default": 120}
+      }
+    }
+  ]
+}

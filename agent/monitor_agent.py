@@ -1,5 +1,6 @@
 """Standalone cross-platform health reporter for the central Device Health server."""
 
+import argparse
 import datetime
 import json
 import logging
@@ -166,9 +167,33 @@ def register(config):
     return device_id
 
 
+def start_command_channel(config, device_id):
+    """Start the outbound command channel so the dashboard can run approved tools.
+
+    Enabled by default; set "enable_command_channel": false in agent_config.json
+    to keep the agent strictly report-only. Raw shell stays off unless both the
+    agent (allow_shell) and the server opt in.
+    """
+    if not config.get("enable_command_channel", True):
+        logging.info("Command channel disabled by config; agent is report-only.")
+        return
+    try:
+        from command_channel import CommandChannel
+    except ImportError:
+        from .command_channel import CommandChannel
+    backup_dir = AGENT_DIR / "sentinel_backups"
+    backup_dir.mkdir(exist_ok=True)
+    channel = CommandChannel(
+        server_url=config["server_url"], agent_token=config["AGENT_TOKEN"], device_id=device_id,
+        backup_dir=str(backup_dir), allow_shell=bool(config.get("allow_shell", False)),
+    )
+    channel.start()
+
+
 def run():
     config = load_config()
     device_id = register(config)
+    start_command_channel(config, device_id)
     previous = None
     interval = max(2, int(config.get("interval_seconds", DEFAULT_INTERVAL)))
     logging.info("Agent %s started for device %s", config.get("nickname", socket.gethostname()), device_id)
@@ -189,8 +214,44 @@ def run():
         time.sleep(interval)
 
 
+def _apply_cli_overrides():
+    """Let the copy-paste install one-liner pass config on the command line.
+
+    Values given here are written into agent_config.json on first run so the
+    agent is self-configuring from a single command and persists across restarts.
+    """
+    parser = argparse.ArgumentParser(description="Sentinel monitor agent")
+    parser.add_argument("--server-url")
+    parser.add_argument("--token")
+    parser.add_argument("--nickname")
+    parser.add_argument("--interval", type=int)
+    parser.add_argument("--allow-shell", action="store_true")
+    parser.add_argument("--report-only", action="store_true", help="Disable the command channel.")
+    args, _ = parser.parse_known_args()
+    if not (args.server_url or args.token):
+        return
+    config = {}
+    if CONFIG_PATH.exists():
+        with CONFIG_PATH.open(encoding="utf-8") as handle:
+            config = json.load(handle)
+    if args.server_url:
+        config["server_url"] = args.server_url
+    if args.token:
+        config["AGENT_TOKEN"] = args.token
+    if args.nickname:
+        config["nickname"] = args.nickname
+    if args.interval:
+        config["interval_seconds"] = args.interval
+    if args.allow_shell:
+        config["allow_shell"] = True
+    if args.report_only:
+        config["enable_command_channel"] = False
+    save_config(config)
+
+
 if __name__ == "__main__":
     try:
+        _apply_cli_overrides()
         run()
     except Exception:
         logging.exception("Agent stopped during setup")
