@@ -1,10 +1,12 @@
 """Persistent SQLite storage for local diagnostic alerts."""
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "alerts.db"
+# Shares the same database as the other stores; SENTINEL_DB overrides it (Docker volume).
+DB_PATH = Path(os.getenv("SENTINEL_DB") or (Path(__file__).resolve().parent.parent / "alerts.db"))
 
 
 def _connect():
@@ -43,7 +45,14 @@ def add_alert(alert, device_id="local-server"):
             (timestamp, alert["severity"], alert["category"], alert["description"], device_id),
         )
         connection.commit()
-        return {"id": cursor.lastrowid, **alert, "timestamp": timestamp, "status": "open", "device_id": device_id}
+        created = {"id": cursor.lastrowid, **alert, "timestamp": timestamp, "status": "open", "device_id": device_id}
+    # Notify outside the DB transaction; best-effort and non-blocking.
+    try:
+        from . import notifier
+        notifier.notify_alert(created, device_id)
+    except Exception:
+        pass
+    return created
 
 
 def get_alerts(limit=100, device_id=None):

@@ -519,6 +519,7 @@ async function loadDevice(deviceId) {
       <div class="section-heading">
         <div><p class="kicker">SELECTED ENDPOINT</p><h2>${report.system?.hostname || deviceId}</h2></div>
         <button class="ghost-button" data-device-diagnose="${deviceId}">Diagnose with AI</button>
+        <a class="ghost-button" href="/api/devices/${deviceId}/report" target="_blank" rel="noopener">Report (PDF)</a>
       </div>
       <div class="mini-metrics">
         <div><small>CPU</small><strong>${percent(report.cpu?.total_usage_percent)}</strong></div>

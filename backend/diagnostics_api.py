@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from . import agent_loop, command_store, decision_memory, health_score, llm_provider, metrics_history, playbooks, schedules, tool_policy
+from . import agent_loop, command_store, decision_memory, health_score, llm_provider, metrics_history, notifier, playbooks, schedules, tool_policy
 from .device_store import get_device_by_token, get_latest_report, list_devices
 from .dispatch import dispatch_read_tool
 from .rules_engine import health_from_report
@@ -400,6 +400,20 @@ def device_history(device_id: str, hours: int = 24):
 @router.get("/api/devices/{device_id}/stress-history")
 def device_stress_history(device_id: str, limit: int = 50):
     return {"runs": metrics_history.stress_runs(device_id, limit=min(limit, 200))}
+
+
+# ============================================================================
+# Notifications (email / webhook)
+# ============================================================================
+
+@router.get("/api/notifications/status")
+def notifications_status():
+    return notifier.status()
+
+
+@router.post("/api/notifications/test")
+def notifications_test():
+    return notifier.send_test()
 
 
 # ============================================================================

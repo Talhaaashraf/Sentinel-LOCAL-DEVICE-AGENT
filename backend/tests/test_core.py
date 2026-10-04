@@ -227,3 +227,31 @@ def test_metrics_history_record_and_downsample(monkeypatch, tmp_path):
     metrics_history.record_stress("devH", "stress_cpu", {"avg_cpu_percent": 90, "max_temp_c": 70, "throttling_suspected": False})
     runs = metrics_history.stress_runs("devH")
     assert runs and runs[0]["test"] == "stress_cpu" and "CPU" in runs[0]["summary"]
+
+
+def test_notifier_threshold_and_webhook(monkeypatch):
+    from backend import notifier
+    sent = []
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://example.invalid/hook")
+    monkeypatch.setenv("ALERT_MIN_SEVERITY", "high")
+    monkeypatch.setattr(notifier, "_send_webhook", lambda text: (sent.append(text) or (True, "sent")))
+    notifier._recent.clear()
+    # Below threshold -> not sent
+    notifier.notify_alert({"severity": "medium", "category": "CPU", "description": "x", "timestamp": "t"}, "dev")
+    import time as _t; _t.sleep(0.2)
+    assert not sent
+    # At/above threshold -> sent once, deduped on repeat
+    notifier.notify_alert({"severity": "critical", "category": "Disk", "description": "full", "timestamp": "t"}, "dev")
+    _t.sleep(0.2)
+    assert len(sent) == 1 and "full" in sent[0]
+    notifier.notify_alert({"severity": "critical", "category": "Disk", "description": "full", "timestamp": "t"}, "dev")
+    _t.sleep(0.2)
+    assert len(sent) == 1  # cooldown
+
+
+def test_notifier_disabled_noop(monkeypatch):
+    from backend import notifier
+    for k in ("ALERT_WEBHOOK_URL", "SMTP_HOST", "SMTP_FROM", "ALERT_EMAIL_TO"):
+        monkeypatch.delenv(k, raising=False)
+    assert notifier.enabled() is False
+    assert notifier.send_test()["enabled"] is False

@@ -162,6 +162,32 @@
     fillDeviceSelect(el('sw-device'), true);
   }
 
+  // ========================================================= NOTIFICATIONS
+  async function refreshNotifyStatus() {
+    const elS = el('notify-status');
+    if (!elS) return;
+    try {
+      const s = await api('/api/notifications/status');
+      if (!s.enabled) {
+        elS.textContent = 'Notifications off — set SMTP_* or ALERT_WEBHOOK_URL in .env to get alerted on critical issues.';
+      } else {
+        const ch = [s.email && 'email', s.webhook && 'webhook'].filter(Boolean).join(' + ');
+        elS.textContent = `Notifying via ${ch} on ${s.min_severity}+ alerts${s.daily_summary ? ', daily summary on' : ''}.`;
+      }
+    } catch (_e) { elS.textContent = ''; }
+  }
+
+  async function testNotify() {
+    const btn = el('notify-test');
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      const r = await api('/api/notifications/test', { method: 'POST' });
+      if (!r.enabled) alert(r.detail);
+      else alert('Test sent:\n' + Object.entries(r.results).map(([k, v]) => `${k}: ${v.ok ? 'ok' : v.detail}`).join('\n'));
+    } catch (error) { alert(error.message); }
+    finally { btn.disabled = false; btn.textContent = 'Send test notification'; }
+  }
+
   // ========================================================= PROCESSES (live)
   let procTimer = null;
   let procLoading = false;
@@ -382,6 +408,12 @@
     wireSubTabs('software', { apps: 'sw-apps', startup: 'sw-startup', backups: 'sw-backups' });
     wireSubTabs('automation', { sched: 'auto-sched', fleet: 'auto-fleet' });
     wireSubTabs('processes', { procs: 'proc-procs', svcs: 'proc-svcs' });
+    // Extend the Alerts tab loader to also refresh notification status.
+    if (window.TAB_LOADERS) {
+      const origAlerts = window.TAB_LOADERS.alerts;
+      window.TAB_LOADERS.alerts = () => { if (origAlerts) origAlerts(); refreshNotifyStatus(); };
+    }
+    if (el('notify-test')) el('notify-test').addEventListener('click', testNotify);
 
     el('sw-refresh').addEventListener('click', loadApps);
     el('sw-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadApps(); });

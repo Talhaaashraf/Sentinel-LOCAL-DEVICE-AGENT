@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import time
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
@@ -137,6 +138,7 @@ async def start_monitor():
     asyncio.create_task(security_loop())
     asyncio.create_task(event_log_loop())
     asyncio.create_task(scheduled_checks_loop())
+    asyncio.create_task(daily_summary_loop())
 
 
 async def monitor_loop():
@@ -253,6 +255,26 @@ async def scheduled_checks_loop():
         except Exception:
             logger.exception("Scheduled check loop failed")
         await asyncio.sleep(60)
+
+
+async def daily_summary_loop():
+    """Send a fleet health summary once every 24h, if notifications + summary are enabled."""
+    from . import notifier
+    from .rules_engine import health_from_report
+    last_sent = 0
+    while True:
+        try:
+            if notifier.status().get("daily_summary") and notifier.enabled() and time.time() - last_sent >= 86400:
+                devices = []
+                for device in list_devices():
+                    latest = get_latest_report(device["device_id"])
+                    health = health_from_report(latest["diagnostics"]) if latest else {}
+                    devices.append({**device, "health": health})
+                await asyncio.to_thread(notifier.send_fleet_summary, devices)
+                last_sent = time.time()
+        except Exception:
+            logger.exception("Daily summary loop failed")
+        await asyncio.sleep(3600)
 
 
 # ============================================================================
