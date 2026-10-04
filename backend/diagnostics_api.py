@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from . import agent_loop, command_store, decision_memory, health_score, llm_provider, playbooks, schedules, tool_policy
+from . import agent_loop, command_store, decision_memory, health_score, llm_provider, metrics_history, playbooks, schedules, tool_policy
 from .device_store import get_device_by_token, get_latest_report, list_devices
 from .dispatch import dispatch_read_tool
 from .rules_engine import health_from_report
@@ -217,12 +217,20 @@ async def agent_command_result(command_id: str, request: Request):
 
 
 def _post_process(device_id, command_id, result):
-    """Compute storage growth by comparing a new storage_snapshot with the previous one."""
+    """Compute storage growth, and log stress runs to history."""
     command = command_store.get_command(command_id)
-    if command and command["tool"] == "storage_snapshot" and isinstance(result, dict):
+    if not command:
+        return result
+    if command["tool"] == "storage_snapshot" and isinstance(result, dict):
         previous = command_store.latest_result(device_id, "storage_snapshot", before_id=command_id)
         if previous and previous.get("result"):
             result["growth"] = _storage_growth(previous["result"], result)
+    if command["tool"] in ("stress_cpu", "stress_ram", "stress_disk", "network_speed") and isinstance(result, dict):
+        try:
+            from . import metrics_history
+            metrics_history.record_stress(device_id, command["tool"], result)
+        except Exception:
+            logger.exception("stress history record failed")
     return result
 
 
@@ -366,6 +374,21 @@ def fleet_commands(payload: dict):
         )
         created.append({"device_id": device_id, "nickname": device.get("nickname"), "command_id": command["id"]})
     return {"created": created, "skipped": skipped}
+
+
+# ============================================================================
+# History & trends
+# ============================================================================
+
+@router.get("/api/devices/{device_id}/history")
+def device_history(device_id: str, hours: int = 24):
+    hours = max(1, min(hours, 24 * metrics_history.RETENTION_DAYS))
+    return metrics_history.history(device_id, hours=hours)
+
+
+@router.get("/api/devices/{device_id}/stress-history")
+def device_stress_history(device_id: str, limit: int = 50):
+    return {"runs": metrics_history.stress_runs(device_id, limit=min(limit, 200))}
 
 
 # ============================================================================

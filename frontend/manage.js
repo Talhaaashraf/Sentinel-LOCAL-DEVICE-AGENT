@@ -162,6 +162,65 @@
     fillDeviceSelect(el('sw-device'), true);
   }
 
+  // ========================================================= HISTORY & TRENDS
+  function lineChart(containerId, values, color, { max = 100, unit = "%" } = {}) {
+    const el_ = el(containerId);
+    const pts = values.filter((v) => v != null);
+    if (!pts.length) { el_.innerHTML = '<div class="chart-empty">no data yet</div>'; return; }
+    const W = 320, H = 90, pad = 4;
+    const top = Math.max(max, Math.ceil(Math.max(...pts) / 10) * 10) || 100;
+    const n = values.length;
+    const x = (i) => pad + (i / Math.max(1, n - 1)) * (W - 2 * pad);
+    const y = (v) => H - pad - (v / top) * (H - 2 * pad);
+    let d = "", started = false;
+    values.forEach((v, i) => {
+      if (v == null) { started = false; return; }
+      d += `${started ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)} `;
+      started = true;
+    });
+    const last = pts[pts.length - 1];
+    const area = d ? `${d}L${x(n - 1).toFixed(1)},${H - pad} L${x(0).toFixed(1)},${H - pad} Z` : "";
+    el_.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="spark">
+      <path d="${area}" fill="${color}" opacity="0.12"/>
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/>
+    </svg>`;
+    return last;
+  }
+
+  async function initHistory() {
+    await fetchDevices();
+    fillDeviceSelect(el('hist-device'), false);
+    loadHistory();
+  }
+
+  async function loadHistory() {
+    const deviceId = el('hist-device').value;
+    if (!deviceId) { el('hist-summary').textContent = 'No device selected.'; return; }
+    const hours = el('hist-range').value;
+    el('hist-summary').textContent = 'Loading…';
+    try {
+      const data = await api(`/api/devices/${deviceId}/history?hours=${hours}`);
+      el('hist-summary').textContent = data.points ? `${data.points} samples over the last ${hours}h.` : 'No samples in this window yet — history builds up as the agent reports.';
+      const s = data.series;
+      const nums = (a) => a.filter((v) => v != null);
+      const last = (a) => { const f = nums(a); return f.length ? f[f.length - 1] : null; };
+      lineChart('chart-cpu', s.cpu, '#72dfc0');
+      lineChart('chart-ram', s.ram, '#82b8ff');
+      lineChart('chart-disk', s.disk, '#f2c66d');
+      lineChart('chart-health', s.health, '#8ad18a', { max: 100 });
+      el('hist-cpu-now').textContent = last(s.cpu) != null ? last(s.cpu) + '%' : '--';
+      el('hist-ram-now').textContent = last(s.ram) != null ? last(s.ram) + '%' : '--';
+      el('hist-disk-now').textContent = last(s.disk) != null ? last(s.disk) + '%' : '--';
+      el('hist-health-now').textContent = last(s.health) != null ? last(s.health) : '--';
+    } catch (error) { el('hist-summary').textContent = error.message; }
+    try {
+      const runs = (await api(`/api/devices/${deviceId}/stress-history`)).runs || [];
+      el('hist-stress-body').innerHTML = runs.length
+        ? runs.map((r) => `<tr><td>${new Date(r.when).toLocaleString()}</td><td>${esc(r.test)}</td><td>${esc(r.summary || '')}</td></tr>`).join('')
+        : '<tr><td colspan="3" class="empty-state">No stress runs recorded yet.</td></tr>';
+    } catch (_e) { /* ignore */ }
+  }
+
   // ========================================================= AUTOMATION: schedules
   async function initAutomation() {
     await fetchDevices();
@@ -243,6 +302,7 @@
     if (window.TAB_LOADERS) {
       window.TAB_LOADERS.software = initSoftware;
       window.TAB_LOADERS.automation = initAutomation;
+      window.TAB_LOADERS.history = initHistory;
     }
     wireSubTabs('software', { apps: 'sw-apps', startup: 'sw-startup', backups: 'sw-backups' });
     wireSubTabs('automation', { sched: 'auto-sched', fleet: 'auto-fleet' });
@@ -275,6 +335,8 @@
       if (del && confirm('Delete this schedule?')) api(`/api/schedules/${del.dataset.schedDel}`, { method: 'DELETE' }).then(loadSchedules);
     });
     el('fleet-run').addEventListener('click', runFleet);
+    if (el('hist-device')) el('hist-device').addEventListener('change', loadHistory);
+    if (el('hist-range')) el('hist-range').addEventListener('change', loadHistory);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);

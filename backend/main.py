@@ -109,6 +109,11 @@ def snapshot_with_alerts(report):
     for alert in evaluate_rules(report, previous_report):
         add_alert(alert, "local-server")
     previous_report = report
+    try:
+        from . import metrics_history
+        metrics_history.record_report("local-server", report)
+    except Exception:
+        pass
     return report
 
 
@@ -381,6 +386,11 @@ def agent_report(payload: dict, request: Request):
 
     timestamp = str(payload.get("timestamp") or datetime.now(timezone.utc).isoformat())
     save_report(device_id, timestamp, diagnostics_payload, payload.get("spike_detected", False))
+    try:
+        from . import metrics_history
+        metrics_history.record_report(device_id, diagnostics_payload)
+    except Exception:
+        logger.exception("metric history record failed")
     return {"accepted": True, "device_id": device_id, "alerts_created": len(alerts_for_report)}
 
 

@@ -23,14 +23,15 @@
         <button class="nav-item" data-tab="diagnose"><span>02</span>Diagnose (AI)</button>
         <button class="nav-item" data-tab="software"><span>03</span>Software</button>
         <button class="nav-item" data-tab="stress"><span>04</span>Stress Test</button>
-        <button class="nav-item" data-tab="automation"><span>05</span>Automation</button>
-        <button class="nav-item" data-tab="decisions"><span>06</span>Decisions</button>
-        <button class="nav-item" data-tab="alerts"><span>07</span>Alerts <b id="alert-count">0</b></button>
-        <button class="nav-item" data-tab="security"><span>08</span>Security</button>
-        <button class="nav-item" data-tab="performance"><span>09</span>Performance</button>
-        <button class="nav-item" data-tab="logs"><span>10</span>Event Logs</button>
-        <button class="nav-item" data-tab="technician"><span>11</span>Ask Technician</button>
-        <button class="nav-item" data-tab="agents"><span>12</span>Agents <b id="agent-count">0</b></button>
+        <button class="nav-item" data-tab="history"><span>05</span>History</button>
+        <button class="nav-item" data-tab="automation"><span>06</span>Automation</button>
+        <button class="nav-item" data-tab="decisions"><span>07</span>Decisions</button>
+        <button class="nav-item" data-tab="alerts"><span>08</span>Alerts <b id="alert-count">0</b></button>
+        <button class="nav-item" data-tab="security"><span>09</span>Security</button>
+        <button class="nav-item" data-tab="performance"><span>10</span>Performance</button>
+        <button class="nav-item" data-tab="logs"><span>11</span>Event Logs</button>
+        <button class="nav-item" data-tab="technician"><span>12</span>Ask Technician</button>
+        <button class="nav-item" data-tab="agents"><span>13</span>Agents <b id="agent-count">0</b></button>
       </nav>
 
       <div id="connection-state" class="connection-state">
@@ -259,6 +260,44 @@
             <button id="stress-cancel" class="ghost-button hidden">Stop</button></div>
           <div id="stress-progress" class="steps"></div>
           <pre id="stress-output" class="output-box"></pre>
+        </section>
+      </section>
+
+      <!-- ============================== HISTORY ============================== -->
+      <section id="history" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">TRENDS / TIME SERIES</p>
+            <h1>History</h1>
+            <p class="subheading">How this laptop has behaved over time, and its past stress/benchmark runs.</p>
+          </div>
+          <div class="inline-form">
+            <label class="field"><span>Laptop</span><select id="hist-device"></select></label>
+            <label class="field"><span>Window</span>
+              <select id="hist-range">
+                <option value="6">Last 6 hours</option>
+                <option value="24" selected>Last 24 hours</option>
+                <option value="72">Last 3 days</option>
+                <option value="168">Last 7 days</option>
+              </select>
+            </label>
+          </div>
+        </header>
+        <p id="hist-summary" class="soft-label">Pick a laptop.</p>
+        <div class="charts-grid">
+          <article class="chart-card"><div class="chart-head"><span>CPU %</span><b id="hist-cpu-now">--</b></div><div id="chart-cpu" class="chart"></div></article>
+          <article class="chart-card"><div class="chart-head"><span>MEMORY %</span><b id="hist-ram-now">--</b></div><div id="chart-ram" class="chart"></div></article>
+          <article class="chart-card"><div class="chart-head"><span>DISK %</span><b id="hist-disk-now">--</b></div><div id="chart-disk" class="chart"></div></article>
+          <article class="chart-card"><div class="chart-head"><span>HEALTH SCORE</span><b id="hist-health-now">--</b></div><div id="chart-health" class="chart"></div></article>
+        </div>
+        <section class="overview-panel" style="margin-top:22px">
+          <div class="section-heading"><div><p class="kicker">BENCHMARKS</p><h2>Stress &amp; burn-in history</h2></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>WHEN</th><th>TEST</th><th>RESULT</th></tr></thead>
+              <tbody id="hist-stress-body"><tr><td colspan="3" class="empty-state">No runs recorded yet.</td></tr></tbody>
+            </table>
+          </div>
         </section>
       </section>
 

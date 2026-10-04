@@ -211,3 +211,19 @@ def test_schedule_crud_and_due(monkeypatch, tmp_path):
     schedules.mark_ran(s["id"], "ok")
     assert schedules.get(s["id"])["last_result"] == "ok"
     assert schedules.delete(s["id"]) is True
+
+
+def test_metrics_history_record_and_downsample(monkeypatch, tmp_path):
+    from backend import device_store, metrics_history
+    monkeypatch.setattr(device_store, "DB_PATH", tmp_path / "h.db")
+    monkeypatch.setattr(metrics_history, "MIN_SAMPLE_GAP_SECONDS", 0)
+    for i in range(5):
+        metrics_history.record_report("devH", {"cpu": {"total_usage_percent": 10 + i},
+                                               "memory": {"ram": {"usage_percent": 40}},
+                                               "disk": [{"usage_percent": 55}]})
+    h = metrics_history.history("devH", hours=24)
+    assert h["points"] == 5
+    assert len(h["series"]["cpu"]) >= 1 and h["series"]["ram"][0] == 40
+    metrics_history.record_stress("devH", "stress_cpu", {"avg_cpu_percent": 90, "max_temp_c": 70, "throttling_suspected": False})
+    runs = metrics_history.stress_runs("devH")
+    assert runs and runs[0]["test"] == "stress_cpu" and "CPU" in runs[0]["summary"]
