@@ -1,0 +1,17 @@
+.git
+.gitignore
+venv/
+**/__pycache__/
+*.pyc
+*.db
+.env
+agent_builds/
+agent_build_work/
+agent/sentinel_backups/
+decisions/cases/*.md
+dist/
+build/
+*.spec
+*.err
+openapi_raw.json
+backup_*.db

@@ -28,6 +28,21 @@ the dashboard.
 5. **Decisions tab.** Every closed diagnosis is saved (symptom → root cause → actions → outcome)
    and recalled for similar future problems. Design decisions live as ADRs in `decisions/`.
 
+## Run with Docker + nginx
+
+The quickest way to deploy on a server for the whole team:
+
+```bash
+cd sentinel-local-device-agent
+cp .env.docker.example .env         # set DASHBOARD_PASSWORD, ADMIN_API_KEY, PUBLIC_SERVER_URL
+docker compose up -d --build
+docker compose exec ollama ollama pull qwen2.5:3b-instruct   # one time (free, local brain)
+```
+
+Open **http://<this-host>/**. nginx (port 80) fronts the FastAPI backend and the Ollama
+container; data (database, saved cases, models) lives in named volumes and survives restarts.
+Full details, HTTPS and management commands are in [`deploy/README-docker.md`](deploy/README-docker.md).
+
 ### The AI brain (free, local)
 
 Default is **Ollama** with `qwen2.5:3b-instruct` — runs on a CPU-only PC with 16 GB RAM and

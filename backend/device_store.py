@@ -2,13 +2,16 @@
 
 import hashlib
 import json
+import os
 import secrets
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "alerts.db"
+# Default to a file next to the repo; SENTINEL_DB overrides it (used by Docker to
+# point at a persistent volume). All stores share this one database file.
+DB_PATH = Path(os.getenv("SENTINEL_DB") or (Path(__file__).resolve().parent.parent / "alerts.db"))
 OFFLINE_SECONDS = 30
 
 
