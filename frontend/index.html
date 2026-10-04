@@ -22,16 +22,17 @@
         <button class="nav-item active" data-tab="dashboard"><span>01</span>Dashboard</button>
         <button class="nav-item" data-tab="diagnose"><span>02</span>Diagnose (AI)</button>
         <button class="nav-item" data-tab="software"><span>03</span>Software</button>
-        <button class="nav-item" data-tab="stress"><span>04</span>Stress Test</button>
-        <button class="nav-item" data-tab="history"><span>05</span>History</button>
-        <button class="nav-item" data-tab="automation"><span>06</span>Automation</button>
-        <button class="nav-item" data-tab="decisions"><span>07</span>Decisions</button>
-        <button class="nav-item" data-tab="alerts"><span>08</span>Alerts <b id="alert-count">0</b></button>
-        <button class="nav-item" data-tab="security"><span>09</span>Security</button>
-        <button class="nav-item" data-tab="performance"><span>10</span>Performance</button>
-        <button class="nav-item" data-tab="logs"><span>11</span>Event Logs</button>
-        <button class="nav-item" data-tab="technician"><span>12</span>Ask Technician</button>
-        <button class="nav-item" data-tab="agents"><span>13</span>Agents <b id="agent-count">0</b></button>
+        <button class="nav-item" data-tab="processes"><span>04</span>Processes</button>
+        <button class="nav-item" data-tab="stress"><span>05</span>Stress Test</button>
+        <button class="nav-item" data-tab="history"><span>06</span>History</button>
+        <button class="nav-item" data-tab="automation"><span>07</span>Automation</button>
+        <button class="nav-item" data-tab="decisions"><span>08</span>Decisions</button>
+        <button class="nav-item" data-tab="alerts"><span>09</span>Alerts <b id="alert-count">0</b></button>
+        <button class="nav-item" data-tab="security"><span>10</span>Security</button>
+        <button class="nav-item" data-tab="performance"><span>11</span>Performance</button>
+        <button class="nav-item" data-tab="logs"><span>12</span>Event Logs</button>
+        <button class="nav-item" data-tab="technician"><span>13</span>Ask Technician</button>
+        <button class="nav-item" data-tab="agents"><span>14</span>Agents <b id="agent-count">0</b></button>
       </nav>
 
       <div id="connection-state" class="connection-state">
@@ -213,6 +214,54 @@
           </div>
         </div>
         <pre id="sw-output" class="output-box hidden"></pre>
+      </section>
+
+      <!-- ============================== PROCESSES ============================== -->
+      <section id="processes" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">LIVE / TASK MANAGER</p>
+            <h1>Processes</h1>
+            <p class="subheading">Live view of what's running on the laptop. End a runaway process or restart a service — with a confirm.</p>
+          </div>
+          <div class="inline-form">
+            <label class="field"><span>Laptop</span><select id="proc-device"></select></label>
+            <label class="persist-toggle"><input type="checkbox" id="proc-auto" checked> Auto-refresh</label>
+          </div>
+        </header>
+        <div class="decisions-tabs">
+          <button class="sub-tab active" data-sub="procs">Processes</button>
+          <button class="sub-tab" data-sub="svcs">Services</button>
+        </div>
+
+        <div id="proc-procs" class="sub-panel">
+          <div class="inline-form" style="margin-bottom:10px">
+            <label class="mini-field">Sort <select id="proc-sort"><option value="cpu">CPU</option><option value="memory" selected>Memory</option></select></label>
+            <button id="proc-refresh" class="ghost-button">Refresh now</button>
+            <span id="proc-summary" class="soft-label"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>PID</th><th>NAME</th><th>CPU %</th><th>MEMORY</th><th>USER</th><th>ACTION</th></tr></thead>
+              <tbody id="proc-body"><tr><td colspan="6" class="empty-state">Pick a laptop.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="proc-svcs" class="sub-panel hidden">
+          <div class="inline-form" style="margin-bottom:10px">
+            <input id="svc-search" placeholder="Filter services…" autocomplete="off">
+            <button id="svc-refresh" class="primary-button">Load services</button>
+            <span id="svc-summary" class="soft-label"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>NAME</th><th>DISPLAY</th><th>STATE</th><th>ACTION</th></tr></thead>
+              <tbody id="svc-body"><tr><td colspan="4" class="empty-state">Load services for the selected laptop.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <pre id="proc-output" class="output-box hidden"></pre>
       </section>
 
       <!-- ============================== STRESS TEST ============================== -->

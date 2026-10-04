@@ -162,6 +162,78 @@
     fillDeviceSelect(el('sw-device'), true);
   }
 
+  // ========================================================= PROCESSES (live)
+  let procTimer = null;
+  let procLoading = false;
+
+  async function initProcesses() {
+    await fetchDevices();
+    fillDeviceSelect(el('proc-device'), true);
+    loadProcesses();
+    scheduleProcRefresh();
+  }
+
+  function scheduleProcRefresh() {
+    clearTimeout(procTimer);
+    const active = document.getElementById('processes').classList.contains('active-tab');
+    const auto = el('proc-auto') && el('proc-auto').checked;
+    const onProcsSub = !el('proc-procs').classList.contains('hidden');
+    if (active && auto && onProcsSub) procTimer = setTimeout(() => { loadProcesses(true); }, 5000);
+  }
+
+  async function loadProcesses(quiet) {
+    const deviceId = el('proc-device').value;
+    if (!deviceId) { el('proc-body').innerHTML = '<tr><td colspan="6" class="empty-state">No online device.</td></tr>'; return; }
+    if (procLoading) return;           // avoid overlapping samples racing the agent
+    procLoading = true;
+    if (!quiet) el('proc-summary').textContent = 'Loading…';
+    try {
+      const data = await api(`/api/devices/${deviceId}/processes?sort=${el('proc-sort').value}`);
+      const procs = data.processes || [];
+      el('proc-summary').textContent = `CPU ${data.total_cpu_percent ?? '?'}% · RAM ${data.ram_used_percent ?? '?'}% · ${data.process_count} processes · updated ${new Date().toLocaleTimeString()}`;
+      el('proc-body').innerHTML = procs.length
+        ? procs.map((p) => `<tr>
+            <td>${p.pid}</td><td>${esc(p.name)}</td><td>${p.cpu_percent}</td><td>${esc(p.memory)}</td><td>${esc(p.user || '')}</td>
+            <td><button class="mini-btn warn" data-kill="${p.pid}" data-name="${esc(p.name)}">End</button></td></tr>`).join('')
+        : '<tr><td colspan="6" class="empty-state">No processes returned.</td></tr>';
+    } catch (error) { el('proc-summary').textContent = error.message; }
+    finally { procLoading = false; }
+    scheduleProcRefresh();
+  }
+
+  async function killProcess(pid, name) {
+    if (!confirm(`End process ${name} (PID ${pid})? Unsaved work in that app will be lost.`)) return;
+    await runCommand(el('proc-device').value, 'kill_process', { pid: Number(pid) }, el('proc-output'));
+    loadProcesses();
+  }
+
+  async function loadServices() {
+    const deviceId = el('proc-device').value;
+    if (!deviceId) return;
+    el('svc-summary').textContent = 'Loading…';
+    try {
+      const data = await api(`/api/devices/${deviceId}/services?search=${encodeURIComponent(el('svc-search').value.trim())}`);
+      const svcs = data.services || [];
+      el('svc-summary').textContent = `${data.count} services`;
+      el('svc-body').innerHTML = svcs.length
+        ? svcs.slice(0, 300).map((s) => {
+            const name = s.Name || s.name || '';
+            const state = s.State || s.Active || s.State || '';
+            return `<tr><td>${esc(name)}</td><td>${esc(s.DisplayName || '')}</td><td>${esc(state)}</td>
+              <td><button class="mini-btn" data-svc="${esc(name)}" data-act="restart">Restart</button>
+                  <button class="mini-btn warn" data-svc="${esc(name)}" data-act="stop">Stop</button>
+                  <button class="mini-btn" data-svc="${esc(name)}" data-act="start">Start</button></td></tr>`;
+          }).join('')
+        : '<tr><td colspan="4" class="empty-state">No services.</td></tr>';
+    } catch (error) { el('svc-summary').textContent = error.message; }
+  }
+
+  async function serviceAction(name, action) {
+    if (!confirm(`${action} service "${name}"?`)) return;
+    await runCommand(el('proc-device').value, 'service_control', { name, action }, el('proc-output'));
+    loadServices();
+  }
+
   // ========================================================= HISTORY & TRENDS
   function lineChart(containerId, values, color, { max = 100, unit = "%" } = {}) {
     const el_ = el(containerId);
@@ -295,6 +367,8 @@
       if (b.dataset.sub === 'startup') loadStartup();
       if (b.dataset.sub === 'backups') loadBackups();
       if (b.dataset.sub === 'fleet') renderFleetDevices();
+      if (b.dataset.sub === 'svcs') loadServices();
+      if (b.dataset.sub === 'procs') scheduleProcRefresh();
     }));
   }
 
@@ -303,9 +377,11 @@
       window.TAB_LOADERS.software = initSoftware;
       window.TAB_LOADERS.automation = initAutomation;
       window.TAB_LOADERS.history = initHistory;
+      window.TAB_LOADERS.processes = initProcesses;
     }
     wireSubTabs('software', { apps: 'sw-apps', startup: 'sw-startup', backups: 'sw-backups' });
     wireSubTabs('automation', { sched: 'auto-sched', fleet: 'auto-fleet' });
+    wireSubTabs('processes', { procs: 'proc-procs', svcs: 'proc-svcs' });
 
     el('sw-refresh').addEventListener('click', loadApps);
     el('sw-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadApps(); });
@@ -337,6 +413,23 @@
     el('fleet-run').addEventListener('click', runFleet);
     if (el('hist-device')) el('hist-device').addEventListener('change', loadHistory);
     if (el('hist-range')) el('hist-range').addEventListener('change', loadHistory);
+    // Processes
+    if (el('proc-device')) {
+      el('proc-device').addEventListener('change', () => loadProcesses());
+      el('proc-sort').addEventListener('change', () => loadProcesses());
+      el('proc-refresh').addEventListener('click', () => loadProcesses());
+      el('proc-auto').addEventListener('change', scheduleProcRefresh);
+      el('proc-body').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-kill]');
+        if (b) killProcess(b.dataset.kill, b.dataset.name);
+      });
+      el('svc-refresh').addEventListener('click', loadServices);
+      el('svc-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadServices(); });
+      el('svc-body').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-svc]');
+        if (b) serviceAction(b.dataset.svc, b.dataset.act);
+      });
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);

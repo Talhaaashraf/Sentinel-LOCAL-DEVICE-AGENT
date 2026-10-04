@@ -167,8 +167,8 @@ def path_size(path, deadline=None):
 # ============================================================================
 
 def _process_rows(sample_seconds):
-    processes = list(psutil.process_iter(["pid", "name", "username", "memory_info", "exe", "create_time", "ppid", "cmdline"]))
-    for process in processes:
+    procs = list(psutil.process_iter(["pid", "name", "username", "ppid"]))
+    for process in procs:
         try:
             process.cpu_percent(None)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -177,23 +177,35 @@ def _process_rows(sample_seconds):
     cores = psutil.cpu_count() or 1
     total_ram = psutil.virtual_memory().total
     rows = []
-    for process in processes:
+    for process in procs:
         try:
-            info = process.info
-            rss = info["memory_info"].rss if info.get("memory_info") else 0
+            # Read memory/cpu fresh here rather than trusting process_iter's cached
+            # snapshot, which can come back empty under a transient race.
+            with process.oneshot():
+                cpu = process.cpu_percent(None) / cores
+                rss = process.memory_info().rss
+                name = process.name()
+                user = None
+                try:
+                    user = process.username()
+                except (psutil.AccessDenied, KeyError):
+                    pass
+                try:
+                    cmdline = " ".join(process.cmdline() or [])[:300]
+                except (psutil.AccessDenied, psutil.ZombieProcess):
+                    cmdline = ""
             rows.append({
-                "pid": info["pid"],
-                "ppid": info.get("ppid"),
-                "name": info.get("name") or "?",
-                "cpu_percent": round(process.cpu_percent(None) / cores, 1),
+                "pid": process.pid,
+                "ppid": process.info.get("ppid"),
+                "name": name or "?",
+                "cpu_percent": round(cpu, 1),
                 "memory_bytes": rss,
                 "memory": human(rss),
                 "memory_percent": round(rss / total_ram * 100, 1) if total_ram else 0,
-                "user": info.get("username"),
-                "exe": info.get("exe"),
-                "cmdline": " ".join(info.get("cmdline") or [])[:300],
+                "user": user,
+                "cmdline": cmdline,
             })
-        except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError):
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return rows
 

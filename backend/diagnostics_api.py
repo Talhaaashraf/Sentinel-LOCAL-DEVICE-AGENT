@@ -305,6 +305,17 @@ def device_startup(device_id: str):
     return _run_read(device_id, "startup_items", {})
 
 
+@router.get("/api/devices/{device_id}/processes")
+def device_processes(device_id: str, sort: str = "memory", limit: int = 25):
+    return _run_read(device_id, "top_processes", {"sort": sort if sort in ("cpu", "memory") else "memory",
+                                                  "limit": max(5, min(limit, 50))})
+
+
+@router.get("/api/devices/{device_id}/services")
+def device_services(device_id: str, search: str = "", state: str = "all"):
+    return _run_read(device_id, "services", {"search": search, "state": state})
+
+
 @router.get("/api/devices/{device_id}/backups")
 def device_backups(device_id: str):
     return _run_read(device_id, "list_backups", {})
