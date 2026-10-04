@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from . import agent_loop, command_store, decision_memory, health_score, llm_provider, metrics_history, notifier, playbooks, schedules, tool_policy
+from . import agent_loop, audit, auth, command_store, decision_memory, health_score, llm_provider, metrics_history, notifier, playbooks, schedules, tool_policy, users
 from .device_store import get_device_by_token, get_latest_report, list_devices
 from .dispatch import dispatch_read_tool
 from .rules_engine import health_from_report
@@ -24,6 +24,28 @@ router = APIRouter()
 # Tools safe to run across many machines at once without per-machine review.
 FLEET_ALLOWED_TOOLS = {"clean_junk", "install_updates", "create_restore_point",
                        "security_status", "pending_updates", "system_profile", "disk_usage"}
+
+
+def _user(request: Request):
+    """Current user dict, or a synthetic admin when auth is disabled (open mode)."""
+    if not auth.auth_enabled():
+        return {"username": "anonymous", "role": "admin"}
+    return auth.current_user(request.cookies) or {"username": "?", "role": "viewer"}
+
+
+def _require_change(request: Request):
+    """Gate for anything that changes a device or provisions access."""
+    user = _user(request)
+    if user["role"] not in users.CHANGE_ROLES:
+        raise HTTPException(status_code=403, detail="Your role is read-only (viewer). Ask an admin for technician access.")
+    return user
+
+
+def _require_admin(request: Request):
+    user = _user(request)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
 
 
 def _device_or_404(device_id):
@@ -89,8 +111,9 @@ def diagnose_get(session_id: str):
 
 
 @router.post("/api/diagnose/{session_id}/approve")
-def diagnose_approve(session_id: str, payload: dict):
+def diagnose_approve(session_id: str, payload: dict, request: Request):
     """Approve one proposed fix -> create the change command (pending_approval cleared)."""
+    user = _require_change(request)
     session = agent_loop.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -127,20 +150,26 @@ def diagnose_outcome(session_id: str, payload: dict):
 # ============================================================================
 
 @router.post("/api/devices/{device_id}/commands")
-def create_command(device_id: str, payload: dict):
+def create_command(device_id: str, payload: dict, request: Request):
     device = _device_or_404(device_id)
     try:
         tool, clean, needs_approval = tool_policy.check(str(payload.get("tool", "")), payload.get("args") or {}, device.get("os_type"))
     except tool_policy.ToolValidationError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    # If the caller explicitly pre-approves (approve=true), skip the pending state.
+    # Viewers may run read-only tools, but nothing that changes the machine.
+    user = _user(request)
+    if needs_approval or tool["kind"] != "read":
+        if user["role"] not in users.CHANGE_ROLES:
+            raise HTTPException(status_code=403, detail="Your role is read-only (viewer).")
     pre_approved = bool(payload.get("approve"))
     command = command_store.create_command(
         device_id=device_id, tool=tool["name"], kind=tool["kind"], args=clean,
-        requested_by=str(payload.get("requested_by", "technician")),
+        requested_by=user["username"],
         needs_approval=needs_approval and not pre_approved, reason=str(payload.get("reason", "")) or None,
         session_id=payload.get("session_id"),
     )
+    if tool["kind"] != "read":
+        audit.record(user["username"], "run_tool" if pre_approved else "queue_tool", f"{device.get('nickname')}:{tool['name']}", str(clean)[:200])
     return command
 
 
@@ -158,9 +187,11 @@ def command_detail(command_id: str):
 
 
 @router.post("/api/commands/{command_id}/approve")
-def approve_command(command_id: str):
+def approve_command(command_id: str, request: Request):
+    user = _require_change(request)
     if not command_store.approve(command_id):
         raise HTTPException(status_code=409, detail="Command is not awaiting approval")
+    audit.record(user["username"], "approve_command", command_id)
     return {"approved": True}
 
 
@@ -360,7 +391,8 @@ def delete_schedule(schedule_id: str):
 # ============================================================================
 
 @router.post("/api/fleet/commands")
-def fleet_commands(payload: dict):
+def fleet_commands(payload: dict, request: Request):
+    user = _require_change(request)
     tool_name = str(payload.get("tool", ""))
     if tool_name not in FLEET_ALLOWED_TOOLS:
         raise HTTPException(status_code=400, detail=f"{tool_name} is not allowed for fleet actions")
@@ -384,6 +416,7 @@ def fleet_commands(payload: dict):
             requested_by="technician (fleet)", needs_approval=False, reason="Fleet action",
         )
         created.append({"device_id": device_id, "nickname": device.get("nickname"), "command_id": command["id"]})
+    audit.record(user["username"], "fleet_action", tool_name, f"{len(created)} device(s)")
     return {"created": created, "skipped": skipped}
 
 
@@ -400,6 +433,74 @@ def device_history(device_id: str, hours: int = 24):
 @router.get("/api/devices/{device_id}/stress-history")
 def device_stress_history(device_id: str, limit: int = 50):
     return {"runs": metrics_history.stress_runs(device_id, limit=min(limit, 200))}
+
+
+# ============================================================================
+# Accounts, roles and audit log
+# ============================================================================
+
+@router.get("/api/me")
+def whoami(request: Request):
+    user = _user(request)
+    return {"username": user["username"], "role": user["role"], "auth_enabled": auth.auth_enabled(),
+            "can_change": user["role"] in users.CHANGE_ROLES, "is_admin": user["role"] == "admin"}
+
+
+@router.get("/api/users")
+def list_accounts(request: Request):
+    _require_admin(request)
+    return {"users": users.list_users()}
+
+
+@router.post("/api/users")
+def create_account(payload: dict, request: Request):
+    admin = _require_admin(request)
+    try:
+        user = users.create_user(str(payload.get("username", "")), str(payload.get("password", "")),
+                                 str(payload.get("role", "technician")))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    audit.record(admin["username"], "create_user", user["username"], user["role"])
+    return user
+
+
+@router.patch("/api/users/{username}")
+def update_account(username: str, payload: dict, request: Request):
+    admin = _require_admin(request)
+    if not users.get_user(username):
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        if "role" in payload:
+            users.set_role(username, str(payload["role"]))
+            audit.record(admin["username"], "set_role", username, str(payload["role"]))
+        if "active" in payload:
+            users.set_active(username, bool(payload["active"]))
+            audit.record(admin["username"], "set_active", username, str(payload["active"]))
+        if payload.get("password"):
+            users.set_password(username, str(payload["password"]))
+            audit.record(admin["username"], "reset_password", username)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return users.get_user(username)
+
+
+@router.delete("/api/users/{username}")
+def delete_account(username: str, request: Request):
+    admin = _require_admin(request)
+    if username.strip().lower() == admin["username"]:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+    if len(users.list_users()) <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the last account")
+    if not users.delete_user(username):
+        raise HTTPException(status_code=404, detail="User not found")
+    audit.record(admin["username"], "delete_user", username)
+    return {"deleted": True}
+
+
+@router.get("/api/audit")
+def audit_log(request: Request, limit: int = 200):
+    _require_admin(request)
+    return {"entries": audit.recent(min(limit, 500))}
 
 
 # ============================================================================

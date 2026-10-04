@@ -15,7 +15,8 @@ from fastapi.staticfiles import StaticFiles
 
 from .actions import run_action
 from .alert_store import add_alert, get_alerts
-from .auth import PUBLIC_PATH_PREFIXES, SESSION_COOKIE_NAME, auth_enabled, check_password, has_valid_session, session_token
+from .auth import PUBLIC_PATH_PREFIXES, SESSION_COOKIE_NAME, auth_enabled, has_valid_session
+from . import auth, audit, users
 from .collectors import collect_report
 from .device_store import create_pending_token, delete_device, get_device_by_token, get_latest_report, list_devices, mark_offline_devices, register_device, save_report
 from .event_logs import collect_event_log_report
@@ -81,10 +82,13 @@ def login_page():
 @app.post("/login", include_in_schema=False)
 async def login_submit(request: Request):
     form = await request.form()
-    if not check_password(str(form.get("password", ""))):
+    cookie = auth.login(str(form.get("username", "")), str(form.get("password", "")))
+    if not cookie:
         return RedirectResponse(url="/login?error=1", status_code=303)
+    user = auth.current_user({SESSION_COOKIE_NAME: cookie})
+    audit.record(user.get("username") if user else "?", "login")
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie(SESSION_COOKIE_NAME, session_token(), httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+    response.set_cookie(SESSION_COOKIE_NAME, cookie, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
     return response
 
 
@@ -133,6 +137,10 @@ async def start_monitor():
         logger.info("Dashboard login is enabled (DASHBOARD_PASSWORD/ADMIN_API_KEY set).")
     else:
         logger.warning("Dashboard login is disabled: set DASHBOARD_PASSWORD or ADMIN_API_KEY in .env to require sign-in.")
+    try:
+        users.ensure_seed_admin()
+    except Exception:
+        logger.exception("Could not seed initial admin user")
     asyncio.create_task(monitor_loop())
     asyncio.create_task(offline_loop())
     asyncio.create_task(security_loop())

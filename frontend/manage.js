@@ -162,6 +162,61 @@
     fillDeviceSelect(el('sw-device'), true);
   }
 
+  // ========================================================= ACCOUNTS / ROLES
+  let me = { role: 'admin', can_change: true, is_admin: true, auth_enabled: false };
+
+  async function loadMe() {
+    try { me = await api('/api/me'); } catch (_e) { return; }
+    const badge = el('user-badge');
+    if (badge && me.auth_enabled) {
+      badge.classList.remove('hidden');
+      el('user-name').textContent = me.username;
+      el('user-role').textContent = me.role;
+    }
+    if (me.is_admin && el('nav-users')) el('nav-users').classList.remove('hidden');
+    // Read-only users: hide controls that change devices.
+    if (!me.can_change) document.body.classList.add('role-viewer');
+  }
+
+  async function loadUsers() {
+    if (!me.is_admin) return;
+    try {
+      const data = await api('/api/users');
+      el('users-body').innerHTML = data.users.map((u) => `<tr>
+        <td>${esc(u.username)}</td>
+        <td><select data-role-for="${esc(u.username)}">${['admin','technician','viewer'].map((r)=>`<option ${r===u.role?'selected':''}>${r}</option>`).join('')}</select></td>
+        <td>${u.active ? '<span class="badge badge-ok">active</span>' : '<span class="badge badge-warn">disabled</span>'}</td>
+        <td>${u.last_login ? new Date(u.last_login).toLocaleString() : 'never'}</td>
+        <td><button class="mini-btn" data-u-toggle="${esc(u.username)}" data-active="${u.active}">${u.active?'Disable':'Enable'}</button>
+            <button class="mini-btn" data-u-pass="${esc(u.username)}">Reset pw</button>
+            <button class="mini-btn warn" data-u-del="${esc(u.username)}">Delete</button></td></tr>`).join('');
+    } catch (error) { el('users-body').innerHTML = `<tr><td colspan="5" class="empty-state">${esc(error.message)}</td></tr>`; }
+  }
+
+  async function loadAudit() {
+    if (!me.is_admin) return;
+    try {
+      const data = await api('/api/audit');
+      el('audit-body').innerHTML = data.entries.length
+        ? data.entries.map((e) => `<tr><td>${new Date(e.ts).toLocaleString()}</td><td>${esc(e.username)}</td><td>${esc(e.action)}</td><td>${esc(e.target||'')}</td><td>${esc(e.detail||'')}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="empty-state">No activity recorded yet.</td></tr>';
+    } catch (error) { el('audit-body').innerHTML = `<tr><td colspan="5" class="empty-state">${esc(error.message)}</td></tr>`; }
+  }
+
+  async function addUser() {
+    try {
+      await api('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: el('nu-name').value, password: el('nu-pass').value, role: el('nu-role').value }) });
+      el('nu-name').value = ''; el('nu-pass').value = '';
+      loadUsers();
+    } catch (error) { alert(error.message); }
+  }
+
+  async function patchUser(username, body) {
+    try { await api(`/api/users/${username}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); loadUsers(); }
+    catch (error) { alert(error.message); }
+  }
+
   // ========================================================= NOTIFICATIONS
   async function refreshNotifyStatus() {
     const elS = el('notify-status');
@@ -395,6 +450,7 @@
       if (b.dataset.sub === 'fleet') renderFleetDevices();
       if (b.dataset.sub === 'svcs') loadServices();
       if (b.dataset.sub === 'procs') scheduleProcRefresh();
+      if (b.dataset.sub === 'audit') loadAudit();
     }));
   }
 
@@ -404,16 +460,35 @@
       window.TAB_LOADERS.automation = initAutomation;
       window.TAB_LOADERS.history = initHistory;
       window.TAB_LOADERS.processes = initProcesses;
+      window.TAB_LOADERS.users = () => { loadUsers(); };
     }
     wireSubTabs('software', { apps: 'sw-apps', startup: 'sw-startup', backups: 'sw-backups' });
     wireSubTabs('automation', { sched: 'auto-sched', fleet: 'auto-fleet' });
     wireSubTabs('processes', { procs: 'proc-procs', svcs: 'proc-svcs' });
+    wireSubTabs('users', { accounts: 'users-accounts', audit: 'users-audit' });
+    loadMe();
     // Extend the Alerts tab loader to also refresh notification status.
     if (window.TAB_LOADERS) {
       const origAlerts = window.TAB_LOADERS.alerts;
       window.TAB_LOADERS.alerts = () => { if (origAlerts) origAlerts(); refreshNotifyStatus(); };
     }
     if (el('notify-test')) el('notify-test').addEventListener('click', testNotify);
+    // Users admin
+    if (el('nu-add')) {
+      el('nu-add').addEventListener('click', addUser);
+      el('users-body').addEventListener('click', (e) => {
+        const del = e.target.closest('[data-u-del]');
+        const tog = e.target.closest('[data-u-toggle]');
+        const pw = e.target.closest('[data-u-pass]');
+        if (del && confirm(`Delete user ${del.dataset.uDel}?`)) api(`/api/users/${del.dataset.uDel}`, { method: 'DELETE' }).then(loadUsers).catch((er) => alert(er.message));
+        if (tog) patchUser(tog.dataset.uToggle, { active: tog.dataset.active !== 'true' });
+        if (pw) { const p = prompt(`New password for ${pw.dataset.uPass} (min 6 chars):`); if (p) patchUser(pw.dataset.uPass, { password: p }); }
+      });
+      el('users-body').addEventListener('change', (e) => {
+        const sel = e.target.closest('[data-role-for]');
+        if (sel) patchUser(sel.dataset.roleFor, { role: sel.value });
+      });
+    }
 
     el('sw-refresh').addEventListener('click', loadApps);
     el('sw-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadApps(); });

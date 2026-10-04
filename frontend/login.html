@@ -23,10 +23,13 @@
         <span class="brand-mark">S</span>
         <div><strong>Sentinel</strong><small>AI-POWERED DEVICE DIAGNOSTICS</small></div>
       </div>
-      <label for="password">ADMIN PASSWORD</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
-      <div id="login-error" class="login-error hidden">Incorrect password.</div>
+      <label for="username">USERNAME</label>
+      <input id="username" name="username" type="text" autocomplete="username" autofocus placeholder="admin">
+      <label for="password">PASSWORD</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <div id="login-error" class="login-error hidden">Incorrect username or password.</div>
       <button type="submit">Sign in</button>
+      <p style="margin-top:14px;color:var(--muted);font:.62rem Consolas,monospace;line-height:1.5">Leave username blank to sign in with the shared password.</p>
     </form>
   </div>
   <script>

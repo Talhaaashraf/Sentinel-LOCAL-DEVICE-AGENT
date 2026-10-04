@@ -77,3 +77,10 @@
 /* ===== Notifications bar (added) ===== */
 .notify-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; padding:11px 14px; background:var(--panel); border:1px solid var(--line); }
 .notify-bar .soft-label { margin:0; }
+
+/* ===== Users / roles (added) ===== */
+.user-badge { margin:10px 9px 0; padding:8px 10px; background:var(--panel-2); border:1px solid var(--line); }
+.user-badge span { display:block; font-size:.82rem; } .user-badge small { color:var(--teal); font:.6rem Consolas,monospace; text-transform:uppercase; }
+/* Read-only (viewer) role: hide action buttons that change devices. */
+body.role-viewer .mini-btn.warn, body.role-viewer #fleet-run, body.role-viewer [data-stress],
+body.role-viewer #diagnose-fixes button, body.role-viewer #nu-add { display:none !important; }

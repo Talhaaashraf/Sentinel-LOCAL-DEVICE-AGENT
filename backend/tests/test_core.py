@@ -255,3 +255,33 @@ def test_notifier_disabled_noop(monkeypatch):
         monkeypatch.delenv(k, raising=False)
     assert notifier.enabled() is False
     assert notifier.send_test()["enabled"] is False
+
+
+def test_users_and_auth(monkeypatch, tmp_path):
+    from backend import device_store, users, auth
+    monkeypatch.setattr(device_store, "DB_PATH", tmp_path / "u.db")
+    monkeypatch.setenv("SESSION_SECRET", "test-secret")
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.delenv("ADMIN_API_KEY", raising=False)
+    assert users.count() == 0
+    users.create_user("alice", "hunter2", "admin")
+    users.create_user("bob", "viewer-pass", "viewer")
+    assert users.authenticate("alice", "hunter2")["role"] == "admin"
+    assert users.authenticate("alice", "wrong") is None
+    assert users.authenticate("bob", "viewer-pass")["role"] == "viewer"
+    # signed session round-trip
+    token = auth.issue_session("alice", "admin")
+    assert auth.current_user({auth.SESSION_COOKIE_NAME: token}) == {"username": "alice", "role": "admin"}
+    assert auth.current_user({auth.SESSION_COOKIE_NAME: token + "x"}) is None
+    # login via helper
+    assert auth.login("bob", "viewer-pass")
+    assert auth.login("bob", "nope") is None
+
+
+def test_seed_admin_from_shared_password(monkeypatch, tmp_path):
+    from backend import device_store, users
+    monkeypatch.setattr(device_store, "DB_PATH", tmp_path / "s2.db")
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "sharedpw123")
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    users.ensure_seed_admin()
+    assert users.authenticate("admin", "sharedpw123")["role"] == "admin"

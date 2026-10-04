@@ -33,6 +33,7 @@
         <button class="nav-item" data-tab="logs"><span>12</span>Event Logs</button>
         <button class="nav-item" data-tab="technician"><span>13</span>Ask Technician</button>
         <button class="nav-item" data-tab="agents"><span>14</span>Agents <b id="agent-count">0</b></button>
+        <button class="nav-item hidden" id="nav-users" data-tab="users"><span>15</span>Users</button>
       </nav>
 
       <div id="connection-state" class="connection-state">
@@ -43,6 +44,7 @@
         </div>
       </div>
       <p class="sidebar-note">A private, local-first, AI-assisted health monitor for this device and its fleet.</p>
+      <div id="user-badge" class="user-badge hidden"><span id="user-name">--</span><small id="user-role"></small></div>
       <a href="/logout" class="sidebar-logout">Sign out</a>
     </aside>
 
@@ -567,6 +569,45 @@
         <div id="os-count-summary" class="os-count-summary"></div>
         <div id="agents-grid" class="agents-grid"><div class="empty-state">Loading registered devices...</div></div>
         <section id="device-detail" class="device-detail hidden"></section>
+      </section>
+
+      <!-- ============================== USERS (admin) ============================== -->
+      <section id="users" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">ACCESS / ACCOUNTS</p>
+            <h1>Users</h1>
+            <p class="subheading">Per-technician accounts and roles. Admins manage everything; technicians can run fixes; viewers are read-only.</p>
+          </div>
+        </header>
+        <div class="decisions-tabs">
+          <button class="sub-tab active" data-sub="accounts">Accounts</button>
+          <button class="sub-tab" data-sub="audit">Audit log</button>
+        </div>
+
+        <div id="users-accounts" class="sub-panel">
+          <div class="diagnose-controls">
+            <label class="field"><span>Username</span><input id="nu-name" autocomplete="off"></label>
+            <label class="field"><span>Password</span><input id="nu-pass" type="password" autocomplete="new-password"></label>
+            <label class="field"><span>Role</span><select id="nu-role"><option value="technician">technician</option><option value="admin">admin</option><option value="viewer">viewer</option></select></label>
+            <button id="nu-add" class="primary-button">Add user</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>USERNAME</th><th>ROLE</th><th>STATUS</th><th>LAST LOGIN</th><th>ACTIONS</th></tr></thead>
+              <tbody id="users-body"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="users-audit" class="sub-panel hidden">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>TIME</th><th>USER</th><th>ACTION</th><th>TARGET</th><th>DETAIL</th></tr></thead>
+              <tbody id="audit-body"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
     </main>
