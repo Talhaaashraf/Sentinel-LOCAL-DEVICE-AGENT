@@ -164,3 +164,50 @@ def test_agent_loop_llm_mode(monkeypatch):
     assert session["status"] == "awaiting_decision"
     assert "disk" in (session["conclusion"] or "").lower()
     assert any(step["tool"] == "disk_usage" for step in session["steps"] if step["kind"] == "tool_result")
+
+
+def test_enable_startup_is_change_tool():
+    from backend import tool_policy
+    _, _, needs = tool_policy.check("enable_startup_item", {"item_id": "x"}, "linux")
+    assert needs is True
+    _, _, needs = tool_policy.check("list_backups", {}, "linux")
+    assert needs is False
+
+
+def test_backup_manifest_record_list_restore(tmp_path):
+    import sys, pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "agent"))
+    import tools_common as c, tools_unix as u
+    bd = str(tmp_path / "bk")
+    (tmp_path / "App").mkdir()
+    import shutil
+    shutil.move(str(tmp_path / "App"), str(tmp_path / "App.q"))
+    entry = c.record_backup(bd, "quarantine_folder", original=str(tmp_path / "App"), backup=str(tmp_path / "App.q"), app="X")
+    listed = c.list_backups(backup_dir=bd)
+    assert listed["restorable_count"] == 1 and listed["backups"][0]["id"] == entry["id"]
+    result = u.restore_backup(entry_id=entry["id"], backup_dir=bd)
+    assert result["restored"] and (tmp_path / "App").exists()
+    assert c.list_backups(backup_dir=bd)["backups"][0]["restored"] is True
+
+
+def test_fleet_allowlist_rejects_unsafe():
+    from backend import diagnostics_api
+    assert "clean_junk" in diagnostics_api.FLEET_ALLOWED_TOOLS
+    assert "kill_process" not in diagnostics_api.FLEET_ALLOWED_TOOLS
+    assert "uninstall_app" not in diagnostics_api.FLEET_ALLOWED_TOOLS
+
+
+def test_schedule_crud_and_due(monkeypatch, tmp_path):
+    from backend import device_store, schedules
+    monkeypatch.setattr(device_store, "DB_PATH", tmp_path / "s.db")
+    s = schedules.create("devX", "cpu", 5)
+    assert s["enabled"] and s["interval_minutes"] == 5
+    assert any(x["id"] == s["id"] for x in schedules.list_all("devX"))
+    # Not due yet (next_run is in the future), but due() with a far-future clock returns it.
+    from datetime import timedelta
+    assert schedules.due() == [] or all(d["id"] != s["id"] for d in schedules.due())
+    future = schedules.utc_now() + timedelta(minutes=10)
+    assert any(d["id"] == s["id"] for d in schedules.due(now=future))
+    schedules.mark_ran(s["id"], "ok")
+    assert schedules.get(s["id"])["last_result"] == "ok"
+    assert schedules.delete(s["id"]) is True

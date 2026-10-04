@@ -54,3 +54,14 @@
 .outcome-pill.partial { color:var(--amber); border-color:var(--amber); }
 .adr-body { max-height:280px; overflow:auto; margin-top:10px; padding:11px; background:#0a1117; border:1px solid var(--line); color:#9fb4c9; font:.72rem/1.45 Consolas,monospace; white-space:pre-wrap; }
 .persist-toggle { display:flex; align-items:center; gap:8px; margin:10px 0; color:var(--muted); font-size:.76rem; }
+
+/* ===== Software / Automation tabs (added) ===== */
+.sub-panel { display:block; }
+.badge { display:inline-block; padding:2px 7px; font:.6rem Consolas,monospace; text-transform:uppercase; border:1px solid var(--line); color:var(--muted); }
+.badge-bad { color:var(--red); border-color:var(--red); } .badge-warn { color:var(--amber); border-color:var(--amber); }
+.badge-ok { color:var(--teal); border-color:var(--teal); }
+.row-actions { white-space:nowrap; } .mini-btn { padding:5px 9px; margin:2px; color:var(--teal); background:transparent; border:1px solid #447d77; font-size:.68rem; }
+.mini-btn:hover { background:rgba(114,223,192,.1); } .mini-btn.warn { color:var(--amber); border-color:#7d6b44; } .mini-btn.warn:hover { background:rgba(242,198,109,.1); }
+.fleet-devices { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin:14px 0; }
+.fleet-item { display:flex; align-items:center; gap:8px; padding:11px 13px; background:var(--panel-2); border:1px solid var(--line); font-size:.85rem; }
+.fleet-item small { color:var(--muted); font:.65rem Consolas,monospace; }

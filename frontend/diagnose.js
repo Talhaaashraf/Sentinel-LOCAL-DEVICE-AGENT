@@ -279,8 +279,8 @@
     document.querySelectorAll('[data-stress]').forEach((b) => b.addEventListener('click', () => runStress(b.dataset.stress)));
     el('stress-cancel').addEventListener('click', cancelStress);
     el('refresh-decisions').addEventListener('click', loadDecisions);
-    document.querySelectorAll('.sub-tab').forEach((b) => b.addEventListener('click', () => {
-      document.querySelectorAll('.sub-tab').forEach((x) => x.classList.toggle('active', x === b));
+    document.querySelectorAll('#decisions .sub-tab').forEach((b) => b.addEventListener('click', () => {
+      document.querySelectorAll('#decisions .sub-tab').forEach((x) => x.classList.toggle('active', x === b));
       el('decisions-cases').classList.toggle('hidden', b.dataset.sub !== 'cases');
       el('decisions-adrs').classList.toggle('hidden', b.dataset.sub !== 'adrs');
     }));

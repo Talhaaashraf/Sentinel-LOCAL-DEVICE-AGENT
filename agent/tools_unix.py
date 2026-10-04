@@ -13,7 +13,8 @@ import time
 from pathlib import Path
 
 from tools_common import (IS_MAC, delete_contents, folder_size, home, human,
-                          browser_cache_dirs, run, which)
+                          browser_cache_dirs, run, which,
+                          record_backup, read_manifest, mark_restored)
 
 
 # ============================================================================
@@ -136,6 +137,8 @@ def uninstall_app(app_id="", mode="standard", backup_dir=None, **_):
         dest = Path(backup_dir) / "quarantine" / Path(ref).name
         dest.parent.mkdir(parents=True, exist_ok=True)
         Path(ref).rename(dest)
+        if backup_dir:
+            record_backup(backup_dir, "quarantine_folder", original=ref, backup=str(dest), app=Path(ref).name)
         return {"app": Path(ref).name, "removed": True, "steps": [{"method": "move .app to quarantine", "to": str(dest)}]}
     else:
         raise ValueError(f"Unsupported app source: {kind}")
@@ -189,12 +192,59 @@ def disable_startup_item(item_id="", backup_dir=None, **_):
         if os.geteuid() != 0:
             command = ["sudo", "-n"] + command
         result = run(command, timeout=40)
+        if backup_dir and result["rc"] == 0:
+            record_backup(backup_dir, "startup_item", original=ref, backup=None, app=ref,
+                          extra={"startup_kind": "systemd", "unit": ref, "item_id": item_id})
         return {"disabled": item_id, "ok": result["rc"] == 0, "error": result["stderr"] or None}
     src = Path(ref)
     dest = Path(backup_dir) / "startup" / src.name
     dest.parent.mkdir(parents=True, exist_ok=True)
     src.rename(dest)
+    if backup_dir:
+        record_backup(backup_dir, "startup_item", original=str(src), backup=str(dest), app=src.name,
+                      extra={"startup_kind": "file", "item_id": item_id})
     return {"disabled": item_id, "backup": str(dest)}
+
+
+def enable_startup_item(item_id="", backup_dir=None, **_):
+    for entry in read_manifest(backup_dir):
+        if entry["type"] == "startup_item" and not entry.get("restored") and entry.get("extra", {}).get("item_id") == item_id:
+            return restore_backup(entry_id=entry["id"], backup_dir=backup_dir)
+    raise ValueError("No disabled-startup backup found for this item")
+
+
+def restore_backup(entry_id="", backup_dir=None, **_):
+    entry = next((item for item in read_manifest(backup_dir) if item["id"] == entry_id), None)
+    if not entry:
+        raise ValueError("Backup entry not found")
+    if entry.get("restored"):
+        return {"entry_id": entry_id, "restored": False, "note": "Already restored."}
+    kind = entry["type"]
+    if kind == "quarantine_folder":
+        src, dest = entry["backup"], entry["original"]
+        if not src or not os.path.exists(src):
+            raise ValueError("Quarantined item is no longer available")
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(src).rename(dest)
+    elif kind == "startup_item":
+        extra = entry.get("extra", {})
+        if extra.get("startup_kind") == "systemd":
+            command = ["systemctl", "enable", extra["unit"]]
+            if os.geteuid() != 0:
+                command = ["sudo", "-n"] + command
+            result = run(command, timeout=40)
+            if result["rc"] != 0:
+                raise ValueError(f"systemctl enable failed: {result['stderr']}")
+        else:
+            src, dest = entry["backup"], entry["original"]
+            if src and os.path.exists(src):
+                Path(src).rename(dest)
+    elif kind == "registry_export":
+        raise ValueError("Registry restore is Windows-only")
+    else:
+        raise ValueError(f"Unknown backup type: {kind}")
+    mark_restored(backup_dir, entry_id)
+    return {"entry_id": entry_id, "restored": True, "type": kind, "target": entry.get("original")}
 
 
 def services(state="all", search="", **_):

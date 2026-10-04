@@ -13,13 +13,17 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from . import agent_loop, command_store, decision_memory, health_score, llm_provider, playbooks, tool_policy
+from . import agent_loop, command_store, decision_memory, health_score, llm_provider, playbooks, schedules, tool_policy
 from .device_store import get_device_by_token, get_latest_report, list_devices
 from .dispatch import dispatch_read_tool
 from .rules_engine import health_from_report
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Tools safe to run across many machines at once without per-machine review.
+FLEET_ALLOWED_TOOLS = {"clean_junk", "install_updates", "create_restore_point",
+                       "security_status", "pending_updates", "system_profile", "disk_usage"}
 
 
 def _device_or_404(device_id):
@@ -267,6 +271,101 @@ async def speedtest_upload(request: Request):
     async for chunk in request.stream():
         total += len(chunk)
     return {"received_bytes": total}
+
+
+# ============================================================================
+# Software / Startup / Backups tabs (synchronous read via the agent)
+# ============================================================================
+
+def _run_read(device_id, tool, args):
+    device = _device_or_404(device_id)
+    if device["status"] != "online":
+        raise HTTPException(status_code=409, detail="Device is offline")
+    outcome = dispatch_read_tool(device_id, tool, "read", args, session_id=None, timeout=120)
+    if outcome["status"] != "done":
+        raise HTTPException(status_code=504, detail=outcome.get("error", "The agent did not respond"))
+    return outcome["result"]
+
+
+@router.get("/api/devices/{device_id}/software")
+def device_software(device_id: str, search: str = ""):
+    return _run_read(device_id, "installed_apps", {"include_store_apps": True, "search": search, "limit": 1000})
+
+
+@router.get("/api/devices/{device_id}/startup")
+def device_startup(device_id: str):
+    return _run_read(device_id, "startup_items", {})
+
+
+@router.get("/api/devices/{device_id}/backups")
+def device_backups(device_id: str):
+    return _run_read(device_id, "list_backups", {})
+
+
+# ============================================================================
+# Scheduled checks
+# ============================================================================
+
+@router.get("/api/schedules")
+def list_schedules(device_id: str = ""):
+    return {"schedules": schedules.list_all(device_id or None)}
+
+
+@router.post("/api/schedules")
+def create_schedule(payload: dict):
+    device = _device_or_404(str(payload.get("device_id", "")))
+    preset = str(payload.get("preset", "")).strip()
+    if preset not in playbooks.PLAYBOOKS:
+        raise HTTPException(status_code=400, detail="Unknown preset")
+    interval = int(payload.get("interval_minutes", 60) or 60)
+    return schedules.create(device["device_id"], preset, interval)
+
+
+@router.post("/api/schedules/{schedule_id}/toggle")
+def toggle_schedule(schedule_id: str, payload: dict):
+    schedule = schedules.set_enabled(schedule_id, bool(payload.get("enabled", True)))
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return schedule
+
+
+@router.delete("/api/schedules/{schedule_id}")
+def delete_schedule(schedule_id: str):
+    if not schedules.delete(schedule_id):
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"deleted": True}
+
+
+# ============================================================================
+# Fleet bulk actions
+# ============================================================================
+
+@router.post("/api/fleet/commands")
+def fleet_commands(payload: dict):
+    tool_name = str(payload.get("tool", ""))
+    if tool_name not in FLEET_ALLOWED_TOOLS:
+        raise HTTPException(status_code=400, detail=f"{tool_name} is not allowed for fleet actions")
+    device_ids = payload.get("device_ids") or []
+    if not isinstance(device_ids, list) or not device_ids:
+        raise HTTPException(status_code=400, detail="device_ids must be a non-empty list")
+    by_id = {device["device_id"]: device for device in list_devices()}
+    created, skipped = [], []
+    for device_id in device_ids:
+        device = by_id.get(device_id)
+        if not device:
+            skipped.append({"device_id": device_id, "reason": "not found"})
+            continue
+        try:
+            tool, clean, _ = tool_policy.check(tool_name, payload.get("args") or {}, device.get("os_type"))
+        except tool_policy.ToolValidationError as error:
+            skipped.append({"device_id": device_id, "reason": str(error)})
+            continue
+        command = command_store.create_command(
+            device_id=device_id, tool=tool["name"], kind=tool["kind"], args=clean,
+            requested_by="technician (fleet)", needs_approval=False, reason="Fleet action",
+        )
+        created.append({"device_id": device_id, "nickname": device.get("nickname"), "command_id": command["id"]})
+    return {"created": created, "skipped": skipped}
 
 
 # ============================================================================

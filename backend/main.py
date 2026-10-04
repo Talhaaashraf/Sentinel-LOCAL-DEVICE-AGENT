@@ -131,6 +131,7 @@ async def start_monitor():
     asyncio.create_task(offline_loop())
     asyncio.create_task(security_loop())
     asyncio.create_task(event_log_loop())
+    asyncio.create_task(scheduled_checks_loop())
 
 
 async def monitor_loop():
@@ -203,6 +204,50 @@ async def event_log_loop():
         except Exception:
             logger.exception("Event log check failed")
         await asyncio.sleep(EVENT_LOG_REFRESH_SECONDS)
+
+
+def _run_scheduled_check(schedule):
+    """Run a schedule's preset read tools against its device and raise alerts for findings.
+
+    Runs in a worker thread (dispatch_read_tool blocks waiting for the agent).
+    """
+    from . import playbooks, schedules
+    from .dispatch import dispatch_read_tool
+    from .device_store import list_devices
+
+    device = next((item for item in list_devices() if item["device_id"] == schedule["device_id"]), None)
+    if not device or device["status"] != "online":
+        schedules.mark_ran(schedule["id"], "skipped: device offline")
+        return
+    results = {}
+    for tool, _ in playbooks.PLAYBOOKS.get(schedule["preset"], {}).get("tools", []):
+        if tool_policy.TOOLS.get(tool, {}).get("kind") != "read":
+            continue
+        if tool_policy.platform_for(device["os_type"]) not in tool_policy.TOOLS[tool]["platforms"]:
+            continue
+        outcome = dispatch_read_tool(device["device_id"], tool, "read", {}, session_id=None, timeout=120)
+        if outcome["status"] == "done":
+            results[tool] = outcome["result"]
+    analysis = playbooks.analyze(results)
+    raised = 0
+    for finding in analysis["findings"]:
+        if finding["severity"] in ("critical", "high"):
+            add_alert({"timestamp": datetime.now(timezone.utc).isoformat(), "severity": finding["severity"],
+                       "category": f"Scheduled: {schedule['preset']}", "description": f"{finding['title']} — {finding['detail']}"},
+                      device["device_id"])
+            raised += 1
+    schedules.mark_ran(schedule["id"], f"{len(analysis['findings'])} findings, {raised} alert(s) raised")
+
+
+async def scheduled_checks_loop():
+    from . import schedules
+    while True:
+        try:
+            for schedule in schedules.due():
+                await asyncio.to_thread(_run_scheduled_check, schedule)
+        except Exception:
+            logger.exception("Scheduled check loop failed")
+        await asyncio.sleep(60)
 
 
 # ============================================================================

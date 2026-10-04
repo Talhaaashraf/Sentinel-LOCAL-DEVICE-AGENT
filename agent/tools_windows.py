@@ -10,7 +10,8 @@ import os
 import time
 from pathlib import Path
 
-from tools_common import human, ps_json, run, run_powershell, delete_contents, folder_size
+from tools_common import (human, ps_json, run, run_powershell, delete_contents, folder_size,
+                          record_backup, read_manifest, mark_restored)
 
 try:
     import winreg
@@ -204,16 +205,65 @@ def disable_startup_item(item_id="", backup_dir=None, **_):
         dest = Path(backup_dir) / "startup" / src.name
         dest.parent.mkdir(parents=True, exist_ok=True)
         src.rename(dest)
+        if backup_dir:
+            record_backup(backup_dir, "startup_item", original=str(src), backup=str(dest), app=src.name,
+                          extra={"startup_kind": "folder", "item_id": item_id})
         return {"disabled": item_id, "backup": str(dest)}
     hive_name, path, name = item_id.split(":", 2)
     with winreg.OpenKey(_hive(hive_name), path, 0, winreg.KEY_READ) as key:
         value, _ = winreg.QueryValueEx(key, name)
-    backup = Path(backup_dir) / "startup_registry.txt"
-    backup.parent.mkdir(parents=True, exist_ok=True)
-    backup.open("a", encoding="utf-8").write(f"{hive_name}\\{path}\t{name}\t{value}\n")
     with winreg.OpenKey(_hive(hive_name), path, 0, winreg.KEY_SET_VALUE) as key:
         winreg.DeleteValue(key, name)
-    return {"disabled": item_id, "backup": str(backup), "restore_value": value}
+    if backup_dir:
+        record_backup(backup_dir, "startup_item", original=f"{hive_name}\\{path}\\{name}", backup=None, app=name,
+                      extra={"startup_kind": "registry", "hive": hive_name, "path": path, "name": name, "value": value, "item_id": item_id})
+    return {"disabled": item_id, "restore_value": value}
+
+
+def enable_startup_item(item_id="", backup_dir=None, **_):
+    """Re-enable a startup item from its backup manifest entry."""
+    for entry in read_manifest(backup_dir):
+        if entry["type"] == "startup_item" and not entry.get("restored") and entry.get("extra", {}).get("item_id") == item_id:
+            return restore_backup(entry_id=entry["id"], backup_dir=backup_dir)
+    raise ValueError("No disabled-startup backup found for this item")
+
+
+def restore_backup(entry_id="", backup_dir=None, **_):
+    """Undo a reversible change recorded in the manifest."""
+    entry = next((item for item in read_manifest(backup_dir) if item["id"] == entry_id), None)
+    if not entry:
+        raise ValueError("Backup entry not found")
+    if entry.get("restored"):
+        return {"entry_id": entry_id, "restored": False, "note": "Already restored."}
+    kind = entry["type"]
+    if kind == "quarantine_folder":
+        src, dest = entry["backup"], entry["original"]
+        if not src or not os.path.exists(src):
+            raise ValueError("Quarantined folder is no longer available")
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            Path(src).rename(dest)
+        except OSError:
+            run_powershell(f"Move-Item -LiteralPath {_ps_quote(src)} -Destination {_ps_quote(dest)} -Force", timeout=120)
+    elif kind == "registry_export":
+        if not entry["backup"] or not os.path.exists(entry["backup"]):
+            raise ValueError("Registry backup (.reg) is no longer available")
+        result = run(["reg", "import", entry["backup"]], timeout=30)
+        if result["rc"] != 0:
+            raise ValueError(f"reg import failed: {result['stderr']}")
+    elif kind == "startup_item":
+        extra = entry.get("extra", {})
+        if extra.get("startup_kind") == "folder":
+            src, dest = entry["backup"], entry["original"]
+            if src and os.path.exists(src):
+                Path(src).rename(dest)
+        else:
+            with winreg.OpenKey(_hive(extra["hive"]), extra["path"], 0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, extra["name"], 0, winreg.REG_SZ, extra["value"])
+    else:
+        raise ValueError(f"Unknown backup type: {kind}")
+    mark_restored(backup_dir, entry_id)
+    return {"entry_id": entry_id, "restored": True, "type": kind, "target": entry.get("original")}
 
 
 def services(state="all", search="", **_):
@@ -442,6 +492,8 @@ def uninstall_app(app_id="", mode="standard", backup_dir=None, ctx=None, **_):
             except Exception:
                 pass
         quarantined = _quarantine(location, backup_dir)
+        if backup_dir:
+            record_backup(backup_dir, "quarantine_folder", original=location, backup=quarantined, app=app["name"])
         steps.append({"method": "quarantine install folder", "from": location, "to": quarantined})
     removed = remove_app_entry(app_id=app_id, backup_dir=backup_dir)
     steps.append({"method": "remove registry entry", **removed})
@@ -509,6 +561,8 @@ def remove_app_entry(app_id="", backup_dir=None, **_):
         Path(backup_dir).mkdir(parents=True, exist_ok=True)
         run(["reg", "export", full, backup_path, "/y"], timeout=30)
     result = run(["reg", "delete", full, "/f"], timeout=30)
+    if backup_dir and backup_path and result["rc"] == 0:
+        record_backup(backup_dir, "registry_export", original=full, backup=backup_path, app=subkey)
     return {"entry": full, "removed": result["rc"] == 0, "backup": backup_path, "error": result["stderr"] or None}
 
 

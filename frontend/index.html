@@ -21,14 +21,16 @@
       <nav aria-label="Primary navigation">
         <button class="nav-item active" data-tab="dashboard"><span>01</span>Dashboard</button>
         <button class="nav-item" data-tab="diagnose"><span>02</span>Diagnose (AI)</button>
-        <button class="nav-item" data-tab="stress"><span>03</span>Stress Test</button>
-        <button class="nav-item" data-tab="decisions"><span>04</span>Decisions</button>
-        <button class="nav-item" data-tab="alerts"><span>05</span>Alerts <b id="alert-count">0</b></button>
-        <button class="nav-item" data-tab="security"><span>06</span>Security</button>
-        <button class="nav-item" data-tab="performance"><span>07</span>Performance</button>
-        <button class="nav-item" data-tab="logs"><span>08</span>Event Logs</button>
-        <button class="nav-item" data-tab="technician"><span>09</span>Ask Technician</button>
-        <button class="nav-item" data-tab="agents"><span>10</span>Agents <b id="agent-count">0</b></button>
+        <button class="nav-item" data-tab="software"><span>03</span>Software</button>
+        <button class="nav-item" data-tab="stress"><span>04</span>Stress Test</button>
+        <button class="nav-item" data-tab="automation"><span>05</span>Automation</button>
+        <button class="nav-item" data-tab="decisions"><span>06</span>Decisions</button>
+        <button class="nav-item" data-tab="alerts"><span>07</span>Alerts <b id="alert-count">0</b></button>
+        <button class="nav-item" data-tab="security"><span>08</span>Security</button>
+        <button class="nav-item" data-tab="performance"><span>09</span>Performance</button>
+        <button class="nav-item" data-tab="logs"><span>10</span>Event Logs</button>
+        <button class="nav-item" data-tab="technician"><span>11</span>Ask Technician</button>
+        <button class="nav-item" data-tab="agents"><span>12</span>Agents <b id="agent-count">0</b></button>
       </nav>
 
       <div id="connection-state" class="connection-state">
@@ -159,6 +161,59 @@
         </section>
       </section>
 
+      <!-- ============================== SOFTWARE ============================== -->
+      <section id="software" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">CLEANUP / UNINSTALL</p>
+            <h1>Software</h1>
+            <p class="subheading">Remove apps — including broken or incomplete installs that still show in Control Panel, and ones hidden from it. Undo anything from Backups.</p>
+          </div>
+          <label class="field"><span>Target laptop</span><select id="sw-device"><option value="">Loading…</option></select></label>
+        </header>
+        <div class="decisions-tabs">
+          <button class="sub-tab active" data-sub="apps">Installed apps</button>
+          <button class="sub-tab" data-sub="startup">Startup</button>
+          <button class="sub-tab" data-sub="backups">Backups / Undo</button>
+        </div>
+
+        <div id="sw-apps" class="sub-panel">
+          <div class="inline-form" style="margin-bottom:12px">
+            <input id="sw-search" placeholder="Search by name or publisher…" autocomplete="off">
+            <button id="sw-refresh" class="primary-button">Load apps</button>
+            <label class="persist-toggle"><input type="checkbox" id="sw-problem-only"> Problem apps only (broken / hidden)</label>
+          </div>
+          <p id="sw-summary" class="soft-label">Pick a laptop and click Load apps.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>NAME</th><th>VERSION</th><th>PUBLISHER</th><th>SIZE</th><th>FLAGS</th><th>ACTIONS</th></tr></thead>
+              <tbody id="sw-apps-body"><tr><td colspan="6" class="empty-state">No apps loaded.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="sw-startup" class="sub-panel hidden">
+          <p id="sw-startup-summary" class="soft-label">Loading startup items…</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>NAME</th><th>COMMAND</th><th>LOCATION</th><th>ACTION</th></tr></thead>
+              <tbody id="sw-startup-body"><tr><td colspan="4" class="empty-state">No items loaded.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="sw-backups" class="sub-panel hidden">
+          <p class="soft-label">Reversible actions this agent recorded. Restore puts things back if a removal caused a problem.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>WHEN</th><th>TYPE</th><th>ITEM</th><th>STATUS</th><th>ACTION</th></tr></thead>
+              <tbody id="sw-backups-body"><tr><td colspan="5" class="empty-state">No backups recorded.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <pre id="sw-output" class="output-box hidden"></pre>
+      </section>
+
       <!-- ============================== STRESS TEST ============================== -->
       <section id="stress" class="tab">
         <header class="page-heading">
@@ -205,6 +260,53 @@
           <div id="stress-progress" class="steps"></div>
           <pre id="stress-output" class="output-box"></pre>
         </section>
+      </section>
+
+      <!-- ============================== AUTOMATION ============================== -->
+      <section id="automation" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">SCHEDULES / FLEET</p>
+            <h1>Automation</h1>
+            <p class="subheading">Run checks on a timer, and run one safe action across many laptops at once.</p>
+          </div>
+        </header>
+        <div class="decisions-tabs">
+          <button class="sub-tab active" data-sub="sched">Scheduled checks</button>
+          <button class="sub-tab" data-sub="fleet">Fleet actions</button>
+        </div>
+
+        <div id="auto-sched" class="sub-panel">
+          <div class="diagnose-controls">
+            <label class="field"><span>Laptop</span><select id="sched-device"></select></label>
+            <label class="field"><span>Check</span><select id="sched-preset"></select></label>
+            <label class="field"><span>Every (minutes)</span><input id="sched-interval" type="number" value="60" min="5"></label>
+            <button id="sched-add" class="primary-button">Add schedule</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>LAPTOP</th><th>CHECK</th><th>EVERY</th><th>LAST RUN</th><th>RESULT</th><th>ACTION</th></tr></thead>
+              <tbody id="sched-body"><tr><td colspan="6" class="empty-state">No schedules yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="auto-fleet" class="sub-panel hidden">
+          <div class="diagnose-controls">
+            <label class="field"><span>Action</span>
+              <select id="fleet-tool">
+                <option value="clean_junk">Clean junk files</option>
+                <option value="install_updates">Install updates</option>
+                <option value="create_restore_point">Create restore point (Windows)</option>
+                <option value="pending_updates">Check pending updates</option>
+                <option value="security_status">Check security status</option>
+              </select>
+            </label>
+            <button id="fleet-run" class="primary-button">Run on selected</button>
+          </div>
+          <div id="fleet-devices" class="fleet-devices"><p class="soft-label">Loading devices…</p></div>
+          <pre id="fleet-output" class="output-box hidden"></pre>
+        </div>
       </section>
 
       <!-- ============================== DECISIONS ============================== -->
@@ -403,5 +505,6 @@
 
   <script src="/static/app.js"></script>
   <script src="/static/diagnose.js"></script>
+  <script src="/static/manage.js"></script>
 </body>
 </html>

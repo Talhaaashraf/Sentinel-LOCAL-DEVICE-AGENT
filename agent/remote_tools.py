@@ -206,6 +206,9 @@ HANDLERS = {
     "remove_app_entry": native.remove_app_entry,
     "startup_items": native.startup_items,
     "disable_startup_item": native.disable_startup_item,
+    "enable_startup_item": native.enable_startup_item,
+    "list_backups": common.list_backups,
+    "restore_backup": native.restore_backup,
     "services": native.services,
     "service_control": native.service_control,
     "driver_problems": native.driver_problems,
@@ -259,7 +262,8 @@ def run_tool(tool_name, args=None, ctx=None, allow_shell=False, server_url=None,
         kwargs["ctx"] = ctx
     if tool_name == "network_speed":
         kwargs["server_url"], kwargs["agent_token"] = server_url, agent_token
-    if tool_name in ("disable_startup_item", "clean_junk", "uninstall_app", "remove_app_entry", "create_restore_point") and ctx is not None:
+    if tool_name in ("disable_startup_item", "enable_startup_item", "clean_junk", "uninstall_app",
+                     "remove_app_entry", "create_restore_point", "list_backups", "restore_backup") and ctx is not None:
         kwargs["backup_dir"] = ctx.backup_dir
     return handler(**kwargs)
 

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "kinds": {
     "read": "Read-only diagnostic. Runs automatically, including when the AI asks for it.",
     "change": "Changes the laptop. Always needs the technician's approval.",
@@ -289,6 +289,37 @@
       "timeout": 30,
       "params": {
         "item_id": {"type": "string", "required": true, "description": "The id field from startup_items."}
+      }
+    },
+    {
+      "name": "enable_startup_item",
+      "kind": "change",
+      "title": "Re-enable startup item",
+      "description": "Restores a previously disabled logon item from its backup.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 30,
+      "params": {
+        "item_id": {"type": "string", "required": true, "description": "The id field from startup_items."}
+      }
+    },
+    {
+      "name": "list_backups",
+      "kind": "read",
+      "title": "List backups (undo)",
+      "description": "Reversible actions this agent has recorded: quarantined app folders, exported registry entries and disabled startup items, and whether each can still be restored.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 20,
+      "params": {}
+    },
+    {
+      "name": "restore_backup",
+      "kind": "change",
+      "title": "Restore / undo",
+      "description": "Undoes a recorded action by its backup id: moves a quarantined folder back, re-imports an exported registry entry, or re-enables a startup item.",
+      "platforms": ["windows", "linux", "darwin"],
+      "timeout": 180,
+      "params": {
+        "entry_id": {"type": "string", "required": true, "description": "The id from list_backups."}
       }
     },
     {

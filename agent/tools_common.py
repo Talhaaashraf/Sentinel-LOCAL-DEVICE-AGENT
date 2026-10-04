@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 import psutil
@@ -582,6 +583,67 @@ def delete_contents(folder, older_than_hours=0, deadline=None):
             except OSError:
                 pass
     return freed, deleted, skipped
+
+
+# ============================================================================
+# Backup manifest — every reversible change is recorded so it can be undone
+# ============================================================================
+
+def manifest_path(backup_dir):
+    return Path(backup_dir) / "manifest.json"
+
+
+def read_manifest(backup_dir):
+    path = manifest_path(backup_dir)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def record_backup(backup_dir, entry_type, original, backup, app="", extra=None):
+    """Append one reversible action to the manifest and return its entry.
+
+    entry_type: 'quarantine_folder' | 'registry_export' | 'startup_item'
+    original:   where it belongs (restore target); backup: where it is now kept.
+    """
+    Path(backup_dir).mkdir(parents=True, exist_ok=True)
+    entries = read_manifest(backup_dir)
+    entry = {
+        "id": f"bk-{uuid.uuid4().hex[:10]}",
+        "type": entry_type,
+        "app": app,
+        "original": str(original) if original else None,
+        "backup": str(backup) if backup else None,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "restored": False,
+        "extra": extra or {},
+    }
+    entries.append(entry)
+    manifest_path(backup_dir).write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    return entry
+
+
+def mark_restored(backup_dir, entry_id):
+    entries = read_manifest(backup_dir)
+    for entry in entries:
+        if entry["id"] == entry_id:
+            entry["restored"] = True
+            entry["restored_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    manifest_path(backup_dir).write_text(json.dumps(entries, indent=2), encoding="utf-8")
+
+
+def list_backups(backup_dir=None, **_):
+    """Read tool: every recorded backup and whether its file still exists to restore from."""
+    entries = read_manifest(backup_dir) if backup_dir else []
+    for entry in entries:
+        backup = entry.get("backup")
+        entry["available"] = bool(backup and os.path.exists(backup)) if entry["type"] != "registry_export" else bool(backup and os.path.exists(backup))
+    active = [entry for entry in entries if not entry.get("restored")]
+    return {"backups": list(reversed(entries)), "restorable_count": sum(1 for entry in active if entry.get("available"))}
 
 
 def browser_cache_dirs():
