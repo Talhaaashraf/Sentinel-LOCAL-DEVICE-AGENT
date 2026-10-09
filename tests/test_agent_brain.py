@@ -167,3 +167,11 @@ def test_model_builder_writes_modelfile_and_dataset(monkeypatch):
     assert len((model_builder.LEARNED_DIR / "training_data.jsonl").read_text(encoding="utf-8").splitlines()) == 3
     assert calls[0]["model"] == "sentinel-tech" and calls[0]["messages"]
     assert model_builder.maybe_rebuild() is None
+
+
+def test_unrelated_fixes_are_dropped_for_a_playbook():
+    from backend.agent_brain.playbooks import filter_relevant_fixes, get_playbook
+    fixes = [{"tool_id": "clear_temp_files"}, {"tool_id": "renew_ip"}, {"tool_id": "sync_time", "learned": True}]
+    kept = filter_relevant_fixes(fixes, get_playbook("disk_full"))
+    assert [fix["tool_id"] for fix in kept] == ["clear_temp_files", "sync_time"]
+    assert filter_relevant_fixes(fixes, None) == fixes

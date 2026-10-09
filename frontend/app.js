@@ -52,6 +52,7 @@ function renderReport(report) {
   ];
   for (const [name, value, state] of gauges) {
     $(`${name}-gauge`).closest('.metric-card').className = `metric-card ${state}`;
+    $(`${name}-gauge`).style.setProperty('--value', typeof value === 'number' ? Math.min(100, value) : 0);
     setText(`${name}-value`, typeof value === 'number' ? value.toFixed(1) : '--');
     setText(`${name}-state`, state.toUpperCase());
   }
@@ -383,9 +384,37 @@ async function checkAI() {
     $('ai-banner').classList.toggle('hidden', Boolean(status.available));
     if (!status.available) setText('ai-banner-detail', `${status.message} Local monitoring remains active.`);
     setText('ai-model-label', `AI: ${status.provider} / ${status.model || '--'} ${status.available ? '(ready)' : '(unavailable)'} / auto-fix: ${status.auto_fix_max_risk}`);
+    const learned = status.learned_model_active;
+    const version = status.learned_model?.version;
+    $('ai-chip').className = `ai-chip ${status.available ? 'ok' : 'off'}${learned ? ' learned' : ''}`;
+    setText('ai-chip-text', status.available
+      ? `${status.model}${learned && version ? ` v${version} · self-improved` : ''}`
+      : 'AI offline');
   } catch (_error) {
     $('ai-banner').classList.remove('hidden');
+    $('ai-chip').className = 'ai-chip off';
+    setText('ai-chip-text', 'AI offline');
   }
+}
+
+// ============================================================================
+// Toast + theme
+// ============================================================================
+
+let toastTimer = null;
+
+function toast(message, tone = 'ok') {
+  const element = $('toast');
+  element.textContent = message;
+  element.className = `toast ${tone}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => element.classList.add('hidden'), 4200);
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('sentinel-theme', next); } catch (_error) { /* private mode */ }
 }
 
 function addChatMessage(text, role) {
@@ -701,6 +730,7 @@ let tsSessionId = null;
 let tsPlaybookId = null;
 let tsPlaybooks = [];
 let tsRefreshPending = false;
+const tsFeedback = {};
 let tsPendingStep = null;
 
 function escapeHtml(value) {
@@ -882,10 +912,10 @@ function renderFix(fix, index, session) {
   const done = fix.status === 'applied';
   const label = done ? 'Applied' : fix.status === 'running' ? 'Applying...' : fix.status === 'failed' ? 'Retry' : 'Apply fix';
   const result = fix.result ? `<p class="ts-fix-result ${fix.result.ok ? 'ok' : 'failed'}">${escapeHtml(fix.result.summary)}</p>` : '';
-  return `<div class="ts-fix">
+  return `<div class="ts-fix ${fix.learned ? 'learned' : ''}">
     <div class="ts-fix-head">
       <strong>${escapeHtml(toolLabel(fix.tool_id))}${escapeHtml(argsLabel(fix.args))}</strong>
-      <span class="risk risk-${escapeHtml(fix.risk)}">${escapeHtml(fix.risk)} risk</span>
+      <span class="button-row">${fix.learned ? '<span class="learned-badge">learned</span>' : ''}<span class="risk risk-${escapeHtml(fix.risk)}">${escapeHtml(fix.risk)} risk</span></span>
     </div>
     <p>${escapeHtml(fix.why || fix.description)}</p>
     ${result}
@@ -935,7 +965,113 @@ function renderTroubleshootSession(session) {
     <small class="ts-label">PROPOSED FIXES</small>
     ${fixes || '<p class="soft-label">No automatic fix applies. Follow the manual steps below.</p>'}
     ${manual ? `<small class="ts-label">MANUAL STEPS</small><ol class="ts-list">${manual}</ol>` : ''}
+    ${renderSimilarCases(report.similar_cases)}
+    ${TERMINAL_STATUSES.includes(session.status) ? renderFeedback(session) : ''}
   `;
+}
+
+function renderSimilarCases(cases) {
+  if (!cases || !cases.length) return '';
+  return `<div class="ts-similar"><small class="ts-label">FROM MEMORY · SIMILAR PAST TICKETS</small><ul>${cases.map((item) => `<li>${escapeHtml(item.issue)} → ${escapeHtml(item.root_cause || 'unknown cause')} <em>(${escapeHtml(item.outcome)})</em></li>`).join('')}</ul></div>`;
+}
+
+function renderFeedback(session) {
+  const given = tsFeedback[session.session_id];
+  return `<div class="ts-feedback">
+    <small class="ts-label">TEACH THE AI</small>
+    <p>Was this diagnosis right? Your answer is saved as a learned case and folded into the next model build.</p>
+    <div class="button-row">
+      <button class="ghost-button ${given === 'up' ? 'selected' : ''}" data-feedback="up">👍 Correct</button>
+      <button class="ghost-button ${given === 'down' ? 'selected' : ''}" data-feedback="down">👎 Wrong</button>
+    </div>
+    <div id="ts-correction" class="${given === 'down-open' ? '' : 'hidden'}">
+      <input id="ts-correct-cause" class="field-input" placeholder="What was the real root cause? (optional, but it teaches the model)">
+      <div class="button-row" style="margin-top:8px"><button class="primary-button" data-feedback="down-submit">Save correction</button></div>
+    </div>
+  </div>`;
+}
+
+async function sendFeedback(kind) {
+  if (kind === 'down') {
+    tsFeedback[tsSessionId] = 'down-open';
+    $('ts-correction').classList.remove('hidden');
+    $('ts-correct-cause').focus();
+    return;
+  }
+  const helpful = kind === 'up';
+  const body = { helpful, corrected_root_cause: helpful ? '' : ($('ts-correct-cause')?.value || '') };
+  try {
+    const response = await fetch(`/api/troubleshoot/${tsSessionId}/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Could not save feedback');
+    tsFeedback[tsSessionId] = helpful ? 'up' : 'down';
+    toast(data.model_rebuilt ? 'Thanks! The Sentinel model was rebuilt with this lesson.' : 'Thanks! Saved as a learned case.');
+    refreshTroubleshootSession();
+    checkAI();
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+// ============================================================================
+// Learning — self-improving model
+// ============================================================================
+
+const OUTCOME_TONES = { resolved: 'ok', unresolved: 'critical', fix_failed: 'critical', diagnosed: 'unknown' };
+
+async function loadLearning() {
+  try {
+    const [stats, cases, lessons] = await Promise.all([
+      fetch('/api/learning/stats').then((response) => response.json()),
+      fetch('/api/learning/cases?limit=50').then((response) => response.json()),
+      fetch('/api/learning/lessons').then((response) => response.json()),
+    ]);
+    const model = stats.model || {};
+    setText('learn-count', stats.total_cases || '');
+    setText('learn-total', stats.total_cases);
+    setText('learn-trusted', `${stats.trusted_cases} trusted (verified or confirmed by you)`);
+    setText('learn-rate', `${Math.round((stats.resolution_rate || 0) * 100)}%`);
+    setText('learn-outcomes', Object.entries(stats.outcomes || {}).map(([key, value]) => `${value} ${key.replace('_', ' ')}`).join(' · ') || 'No outcomes yet');
+    setText('learn-version', model.version ? `v${model.version}` : 'not built');
+    setText('learn-model-name', stats.learned_model_name);
+    setText('learn-model-detail', model.version
+      ? `${stats.learned_model_name} on ${model.base_model} · ${model.lessons} lessons · ${new Date(model.built_at).toLocaleString()}${model.created_in_ollama ? '' : ' · not loaded in Ollama'}`
+      : `Builds automatically every ${stats.rebuild_every} trusted cases`);
+
+    $('learn-lessons').innerHTML = (lessons.lessons || []).map((line) => `<li>${escapeHtml(line.replace(/^- /, ''))}</li>`).join('')
+      || '<li class="soft-label">No lessons yet. Resolve a few issues and give feedback.</li>';
+    $('learn-top-fixes').innerHTML = (stats.top_fixes || []).map((fix) => `<tr><td>${escapeHtml(toolLabel(fix.tool_id))}</td><td>${fix.resolved} / ${fix.attempts}</td><td>${Math.round(fix.rate * 100)}%</td></tr>`).join('')
+      || '<tr><td colspan="3" class="empty-state">No applied fixes yet.</td></tr>';
+    $('learn-cases').innerHTML = (cases.cases || []).map((item) => `
+      <tr>
+        <td>${new Date(item.created_at).toLocaleString()}</td>
+        <td>${escapeHtml(item.issue)}</td>
+        <td>${escapeHtml(item.effective_root_cause || '--')}${item.corrected_root_cause ? ' <span class="learned-badge">corrected</span>' : ''}</td>
+        <td><span class="status-pill ${OUTCOME_TONES[item.outcome] || 'unknown'}">${escapeHtml(item.outcome.replace('_', ' '))}</span></td>
+        <td>${item.feedback === 'up' ? '👍' : item.feedback === 'down' ? '👎' : '--'}</td>
+      </tr>`).join('') || '<tr><td colspan="5" class="empty-state">No cases yet. Every finished ticket shows up here.</td></tr>';
+  } catch (error) {
+    setText('learn-status', error.message);
+  }
+}
+
+async function rebuildLearnedModel() {
+  const button = $('learn-rebuild');
+  button.disabled = true;
+  setText('learn-status', 'Rebuilding the Sentinel model from learned cases...');
+  try {
+    const response = await fetch('/api/learning/rebuild', { method: 'POST' });
+    const info = await response.json();
+    if (!response.ok) throw new Error(info.detail || 'Rebuild failed');
+    setText('learn-status', info.created_in_ollama ? `Built ${info.model} v${info.version} from ${info.trusted_cases} trusted cases.` : `Wrote the Modelfile, but Ollama could not create the model: ${info.error}`);
+    toast(info.created_in_ollama ? `${info.model} v${info.version} is ready` : 'Model files written; Ollama create failed', info.created_in_ollama ? 'ok' : 'error');
+    loadLearning();
+    checkAI();
+  } catch (error) {
+    setText('learn-status', error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function applyTroubleshootFix(index) {
@@ -946,7 +1082,8 @@ async function applyTroubleshootFix(index) {
   if (!confirm(`Apply "${toolLabel(fix.tool_id)}" on ${session.device_label}?\n\n${fix.description}${warning}`)) return;
   const response = await fetch(`/api/troubleshoot/${tsSessionId}/fixes/${index}/apply`, { method: 'POST' });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) alert(data.detail || 'Could not apply the fix');
+  if (!response.ok) toast(data.detail || 'Could not apply the fix', 'error');
+  else toast(`Applying ${toolLabel(fix.tool_id)}...`);
   refreshTroubleshootSession();
 }
 
@@ -962,6 +1099,7 @@ function troubleshootDevice(deviceId) {
 
 const TAB_LOADERS = {
   troubleshoot: loadTroubleshoot,
+  learning: loadLearning,
   'add-agent': loadAddAgent,
   alerts: loadAlerts,
   agents: loadAgents,
@@ -984,6 +1122,9 @@ function switchTab(tab) {
 
 function wireEvents() {
   document.querySelectorAll('.nav-item').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.tab)));
+  document.querySelectorAll('[data-goto]').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.goto)));
+  $('theme-toggle').addEventListener('click', toggleTheme);
+  $('learn-rebuild').addEventListener('click', rebuildLearnedModel);
 
   $('refresh-alerts').addEventListener('click', loadAlerts);
   $('alerts-body').addEventListener('click', (event) => {
@@ -1016,6 +1157,8 @@ function wireEvents() {
   $('ts-report').addEventListener('click', (event) => {
     const button = event.target.closest('[data-apply-fix]');
     if (button) applyTroubleshootFix(Number(button.dataset.applyFix));
+    const feedback = event.target.closest('[data-feedback]');
+    if (feedback) sendFeedback(feedback.dataset.feedback === 'down-submit' ? 'down-submit' : feedback.dataset.feedback);
   });
   $('ts-issue').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) startTroubleshoot();
@@ -1046,6 +1189,7 @@ connectMonitor();
 loadHealth();
 loadAlerts();
 checkAI();
+loadLearning();
 setInterval(loadHealth, 5000);
 setInterval(checkAI, 30000);
 if (location.hash && $(location.hash.slice(1))?.classList.contains('tab')) switchTab(location.hash.slice(1));

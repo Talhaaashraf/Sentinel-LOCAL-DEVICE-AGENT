@@ -1,32 +1,34 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sentinel — Sign in</title>
+  <title>Sentinel · Sign in</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script>
+    try { const saved = localStorage.getItem('sentinel-theme'); if (saved) document.documentElement.dataset.theme = saved; } catch (_error) {}
+  </script>
   <style>
     .login-shell { display: grid; place-items: center; min-height: 100vh; padding: 20px; }
-    .login-card { width: min(360px, 100%); padding: 32px; background: var(--panel); border: 1px solid var(--line); }
-    .login-card .brand { margin: 0 0 26px; }
-    .login-card label { display: block; margin-bottom: 8px; color: var(--muted); font: .68rem Consolas, monospace; letter-spacing: 1px; }
-    .login-card input { width: 100%; padding: 12px; margin-bottom: 16px; color: var(--text); background: #0a1117; border: 1px solid var(--line); outline: none; box-sizing: border-box; }
-    .login-card input:focus { border-color: var(--teal); }
-    .login-card button { width: 100%; padding: 12px; color: #061b18; background: var(--teal); border: 0; font-size: .8rem; }
-    .login-error { margin: -6px 0 16px; color: var(--red); font: .72rem Consolas, monospace; }
+    .login-card { width: min(400px, 100%); padding: 34px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .login-card .brand { margin: 0 0 8px; }
+    .login-card .subheading { margin: 0 0 24px; font-size: .9rem; }
+    .login-card .primary-button { width: 100%; margin-top: 16px; padding: 12px; }
+    .login-error { margin-top: 10px; padding: 9px 12px; border-radius: var(--radius-sm); color: var(--bad); background: var(--bad-soft); font-size: .84rem; }
   </style>
 </head>
 <body>
   <div class="login-shell">
     <form class="login-card" method="post" action="/login">
       <div class="brand">
-        <span class="brand-mark">S</span>
-        <div><strong>Sentinel</strong><small>AI-POWERED DEVICE DIAGNOSTICS</small></div>
+        <span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5.3-3.4 10-8 11-4.6-1-8-5.7-8-11V5z"/></svg></span>
+        <div><strong>Sentinel</strong><small>AI IT TROUBLESHOOTER</small></div>
       </div>
-      <label for="password">ADMIN PASSWORD</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+      <p class="subheading">Sign in to diagnose and fix your devices.</p>
+      <label class="field-label" for="password">Dashboard password</label>
+      <input id="password" class="field-input" name="password" type="password" autocomplete="current-password" autofocus required>
       <div id="login-error" class="login-error hidden">Incorrect password.</div>
-      <button type="submit">Sign in</button>
+      <button class="primary-button" type="submit">Sign in</button>
     </form>
   </div>
   <script>

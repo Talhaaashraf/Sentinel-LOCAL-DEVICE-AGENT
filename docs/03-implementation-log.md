@@ -1,0 +1,57 @@
+# Implementation log
+
+## Phase by phase
+
+| Phase | Result | Where |
+| --- | --- | --- |
+| 1. LLM provider layer | Ollama is the default; Groq is an optional fallback. Errors are surfaced to the UI. | `backend/llm/`, `backend/ai_technician.py` |
+| 2. Shared toolkit | 18 read-only diagnostics and 15 fixes in one allow-listed registry, used by both the server and the agents. The duplicated check modules were merged. | `agent/toolkit/` |
+| 3. Agent brain | Runs baseline playbook checks, then LLM investigation (read-only tools only), then a JSON report with validated fix proposals, then fix-on-click, then re-verification. | `backend/agent_brain/` |
+| 4. Remote tasks | Pull-based task queue: agents long-poll, run tools from their own registry, and apply their own `allow_remediation` / `max_risk` policy. | `backend/task_queue.py`, `agent/monitor_agent.py` |
+| 5. One-line enrollment | `irm … \| iex` and `curl … \| sudo bash` scripts serve a binary or a Python bundle and install a service. | `backend/install_templates/` |
+| 6. UI | "What's the issue?" tab with a live step feed and fix buttons; "Add Agent" tab with copyable commands. | `frontend/` |
+| Docker | Compose stack with `ollama`, `model-init` and `sentinel`. | `Dockerfile`, `docker-compose.yml` |
+| Model folder | The base model is migrated into `models/qwen2.5-3b/` (GGUF, Modelfile, LICENSE). | `models/migrate_model.py` |
+| Self-improving model | Learned-case memory, feedback, and the `sentinel-tech` model rebuilt from lessons. | `backend/learning/`, `models/sentinel-tech/` |
+| UI redesign | New design system with light/dark theme, ring gauges, icon sidebar, AI status chip, Learning tab, and feedback buttons. | `frontend/` |
+
+## Safety design
+
+- The LLM never reaches a shell. It can only name registered tools, and their arguments are validated against a schema.
+- During investigation the model only sees **read** tools. Fixes are proposals; they run when an operator clicks **Apply**, or automatically up to `AUTO_FIX_MAX_RISK` (default `none`).
+- `restart_service` uses an allow-list. `kill_process` needs both the PID and the exact process name, and refuses system processes.
+- Every fix is written to the remediation audit log (`GET /api/troubleshoot/audit`).
+
+## Bugs found in the original code along the way
+
+1. **Agents were blocked by the dashboard login.** With `DASHBOARD_PASSWORD` set, `/api/agents/register` and `/report` returned 401 because the session middleware covered them. Agent endpoints are now public, and each checks its own token.
+2. **Every agent died after 24 hours.** The enrollment token's 24-hour expiry was copied onto the device's credential. Claimed tokens are now permanent, and a migration clears the bad expiry on existing devices.
+
+## Test results (on the development laptop)
+
+- **Unit tests:** 15 pass (`python -m pytest tests`). They cover registry safety, a full mocked session, the task queue, manual-step promotion, the learning memory, operator feedback, and the model builder.
+- **Remote end-to-end with `qwen2.5:7b`:** failed. The report call timed out at 300 s, with laptop RAM 97% used and only 0.3 GB free.
+- **Remote end-to-end with `qwen2.5:3b`:** the issue "Websites are not opening, DNS broken" was diagnosed in about 186 s, `flush_dns` ran on the remote agent, the re-check passed, and the session was marked **Resolved**.
+- **UI:** checked in headless Edge with no JS console errors.
+- **Docker stack:**
+  - `model-init` created `qwen2.5:3b` from `models/qwen2.5-3b/` with no download.
+  - Login, diagnosis, applying a fix, re-verification, feedback, and `sentinel-tech` v1 creation all worked through the API.
+  - Once built, the provider switched to `sentinel-tech` automatically.
+- **Docker test, quality problem found:** for "disk almost full", the 3B model claimed the disk was full even though the evidence showed 1.3% used. It also proposed unrelated fixes (`renew_ip`, `sync_time`). After the fix, re-verification correctly reported *Not resolved*.
+- **Fixes for that problem:**
+  - Each playbook now has a list of relevant fixes (`RELEVANT_FIXES`), and unrelated proposals are dropped.
+  - The report prompt now tells the model to say so plainly, with low confidence and no fixes, when the evidence does not confirm the complaint.
+  - The test run had given 👍 to that wrong diagnosis automatically. Its learned case and `sentinel-tech` v1 were deleted so the model does not learn a wrong lesson. **Only give 👍 to diagnoses you have checked.**
+
+## Deviations from the plan, and why
+
+- **Default model `qwen2.5:3b` instead of `qwen2.5:7b`.** The 7B model timed out on this laptop. Use 7B when about 6 GB of RAM is free; it reasons better.
+- **Prompts were shrunk** (smaller tool results, a compact fix catalog) because on a CPU, prompt length dominates latency.
+- **Manual steps are promoted to fixes.** The 3B model wrote "run `ipconfig /flushdns`" as a manual step instead of proposing the `flush_dns` tool, so a deterministic mapper turns such steps into one-click fixes.
+- **The local target in Docker is the container**, not the laptop. To troubleshoot the laptop from the Docker stack, install the agent on it with the one-line command from the Add Agent tab.
+
+## Not yet verified
+
+- The Windows install script has not been run in an elevated shell, because it registers a SYSTEM task. Only script rendering and the agent bundle were tested.
+- The Linux and macOS install scripts have not been run on real machines.
+- High-risk fixes (SFC, DISM, network reset) have not been executed on any device.

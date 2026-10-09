@@ -26,7 +26,7 @@ from ..learning import store as learning_store
 from ..llm import LLMUnavailableError, get_provider
 from . import events, session_store
 from .executor import execute, resolve_target
-from .playbooks import baseline_tools, get_playbook, match_playbook
+from .playbooks import baseline_tools, filter_relevant_fixes, get_playbook, match_playbook
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,8 @@ Rules:
 
 REPORT_PROMPT = """You are Sentinel, a senior IT support technician. Write the final diagnosis for a {os_type} computer as JSON.
 Use ONLY the evidence provided. Explain in simple language a non-technical user understands.
+If the evidence does NOT confirm the user's complaint (for example the disk has plenty of free space), say so plainly
+in root_cause, set confidence to "low", and do not propose fixes for a problem the evidence does not show.
 JSON schema:
 {{
   "issue_summary": "one sentence restating the user's problem",
@@ -357,6 +359,7 @@ async def _diagnose(session, target):
     reply = await _chat(report_messages, json_mode=True)
     report = normalize_report(_parse_json(reply["content"]), issue, target.os_type, fallback_note=notes)
     report = add_learned_fixes(report, learned_fixes, target.os_type)
+    report["proposed_fixes"] = filter_relevant_fixes(report["proposed_fixes"], playbook)
     report["similar_cases"] = [{"session_id": case["session_id"], "issue": case["issue"][:160], "root_cause": (case.get("effective_root_cause") or "")[:240], "outcome": case["outcome"]} for case in similar]
     session_store.update_session(session_id, status="diagnosed", report=report)
     events.publish(session_id, {"type": "report", "report": report})

@@ -49,6 +49,30 @@ PLAYBOOKS = [
 
 GENERAL_TOOLS = [("event_log_errors", {}, ANY), ("top_processes", {"sort_by": "cpu"}, ANY)]
 
+# Fixes that can plausibly address each playbook's problem. Small models like to
+# propose unrelated fixes (e.g. renew_ip for a full disk); these lists filter them out.
+RELEVANT_FIXES = {
+    "slow_pc": {"kill_process", "disable_startup_item", "clear_temp_files", "restart_service", "repair_system_files"},
+    "no_internet": {"flush_dns", "renew_ip", "reset_network_stack", "restart_service", "sync_time"},
+    "wifi_drops": {"renew_ip", "flush_dns", "restart_service", "reset_network_stack"},
+    "disk_full": {"clear_temp_files", "empty_recycle_bin", "clear_windows_update_cache"},
+    "high_usage": {"kill_process", "disable_startup_item", "restart_service"},
+    "printer": {"clear_print_queue", "restart_service"},
+    "windows_update": {"clear_windows_update_cache", "trigger_update_scan", "restart_service", "sync_time", "repair_windows_image", "repair_system_files"},
+    "crashes": {"repair_system_files", "repair_windows_image", "kill_process"},
+    "battery": {"kill_process", "disable_startup_item"},
+    "audio": {"restart_service"},
+    "security": {"disable_startup_item", "kill_process", "trigger_update_scan"},
+}
+
+
+def filter_relevant_fixes(fixes, playbook):
+    """Drop fixes unrelated to the matched playbook (learned fixes are always kept)."""
+    allowed = RELEVANT_FIXES.get((playbook or {}).get("id"))
+    if not allowed:
+        return fixes
+    return [fix for fix in fixes if fix["tool_id"] in allowed or fix.get("learned")]
+
 
 def public_playbooks():
     return [{"id": item["id"], "title": item["title"], "issue": item["issue"]} for item in PLAYBOOKS]

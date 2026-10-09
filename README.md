@@ -39,6 +39,15 @@ On a CPU-only laptop, one diagnosis takes a few minutes, mostly LLM time. `qwen2
 
 Monitoring, alerts and the dashboard all work without any AI. Only troubleshooting, diagnosis and chat need it. The status of the AI is shown at the top of the **What's the issue?** tab and at `GET /api/ai/status`.
 
+## Run with Docker
+
+```powershell
+python models/migrate_model.py qwen2.5:3b   # once: copies the model into models/qwen2.5-3b/
+docker compose up -d --build                # ollama + model-init + sentinel
+```
+
+Open `http://localhost:8000`. Details: [docs/04-docker.md](docs/04-docker.md). The design notes and decisions for the whole project are in [docs/](docs/README.md), including the self-improving `sentinel-tech` model ([docs/05-self-improving-model.md](docs/05-self-improving-model.md)) and model licensing ([docs/06-models-and-licensing.md](docs/06-models-and-licensing.md)).
+
 ## Run
 
 ```powershell
