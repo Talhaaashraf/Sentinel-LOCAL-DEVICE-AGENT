@@ -4,5 +4,7 @@
   "nickname": "my-device",
   "interval_seconds": 10,
   "enable_performance_benchmark": true,
-  "performance_interval_seconds": 1800
+  "performance_interval_seconds": 1800,
+  "allow_remediation": true,
+  "max_risk": "high"
 }

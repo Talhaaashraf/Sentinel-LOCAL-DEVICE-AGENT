@@ -1,10 +1,15 @@
-# Sentinel — AI-Powered Device Health Monitor
+# Sentinel — Agentic AI IT Troubleshooter
 
-A local, Wazuh-inspired, AI-assisted device health and security dashboard for Windows, macOS, and Linux. FastAPI and `psutil` continuously collect telemetry, a local rules engine persists alerts in SQLite, and an optional Groq technician explains issues — including OS event log entries — in plain language.
+A local, Wazuh-inspired device health monitor that also **diagnoses and fixes problems on its own**. You describe an issue ("internet is slow", "laptop keeps hanging"). An AI agent running on a **free local LLM (Ollama)** then:
 
-## Windows / VS Code setup
+1. runs diagnostic tools on the chosen device (this server or any remote agent),
+2. finds the root cause from the evidence,
+3. proposes fixes that you apply with one click,
+4. re-checks the device to confirm the issue is resolved.
 
-Open the `Project-tool1` folder in VS Code and run these commands in its terminal:
+It supports Windows, macOS and Linux. FastAPI and `psutil` collect telemetry, a local rules engine stores alerts in SQLite, and remote agents connect with a single install command.
+
+## Setup (Windows / VS Code)
 
 ```powershell
 python -m venv venv
@@ -13,74 +18,144 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-To enable the AI technician, create a Groq account at `https://console.groq.com/keys`, create an API key, and put it in `.env`:
+### The AI brain: Ollama (free, local)
 
-```text
-GROQ_API_KEY=your_actual_key
-GROQ_MODEL=openai/gpt-oss-20b
-ADMIN_API_KEY=replace_with_a_long_random_admin_key
-DASHBOARD_PASSWORD=replace_with_a_separate_dashboard_password
-```
+1. Install Ollama from <https://ollama.com> (or `winget install Ollama.Ollama`).
+2. Pull a model that supports tool calling:
 
-## Local network security
+   ```powershell
+   ollama pull qwen2.5:3b     # default: runs on most laptop CPUs, a diagnosis takes about 3 minutes
+   ollama pull qwen2.5:7b     # better reasoning; needs about 6 GB of free RAM
+   ```
 
-This server is designed for local-network use only. It does not provide built-in HTTPS/TLS. Do not expose it directly to the public internet. If remote access is required, put a reverse proxy such as nginx or Caddy with HTTPS, authentication, and appropriate firewall rules in front of it.
+3. Set it in `.env`:
 
-Uvicorn should bind to `127.0.0.1` by default:
+   ```text
+   LLM_PROVIDER=ollama
+   OLLAMA_MODEL=qwen2.5:3b
+   ```
+
+On a CPU-only laptop, one diagnosis takes a few minutes, mostly LLM time. `qwen2.5:7b` gives better root-cause explanations, but if it times out, use `qwen2.5:3b`, close memory-heavy apps, or raise `OLLAMA_TIMEOUT_SECONDS`. To use Groq instead (cloud), set `LLM_PROVIDER=groq` and `GROQ_API_KEY`.
+
+Monitoring, alerts and the dashboard all work without any AI. Only troubleshooting, diagnosis and chat need it. The status of the AI is shown at the top of the **What's the issue?** tab and at `GET /api/ai/status`.
+
+## Run
 
 ```powershell
 uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-Only bind to `0.0.0.0` or a LAN address when you understand the exposure and have network controls in place. Set `ADMIN_API_KEY` in `.env`; the Agents provisioning endpoint requires it in the `X-Admin-Key` header.
+Open `http://127.0.0.1:8000`. To let remote devices connect, bind to your LAN address instead (`--host 0.0.0.0`) and read the security section below.
 
-**Dashboard login.** Set `DASHBOARD_PASSWORD` (or, as a fallback, `ADMIN_API_KEY`) in `.env` and the entire dashboard — pages, REST API, and the `/ws/monitor` WebSocket — requires signing in at `/login` first, via a signed session cookie. Leave both unset and the dashboard stays open with no login, exactly as it did before this option existed. This is a single shared password for the one operator of this tool, not a multi-user system. Sign out any time from the sidebar or at `/logout`.
+## What's the issue? — automated troubleshooting
 
-Keep `.env` private. `GROQ_MODEL` is optional and defaults to `openai/gpt-oss-20b`; set it when you need to switch models. The monitor, rules engine, WebSocket, and alert history work without `GROQ_API_KEY`; only AI diagnosis and chat are disabled.
+1. Open **What's the issue?** and pick the device: this server or any enrolled agent.
+2. Type the problem, or click a common one: slow PC, no internet, Wi-Fi drops, disk full, high CPU/RAM, printer, updates stuck, crashes/BSOD, battery, no sound, security check, or a full check-up.
+3. Click **Diagnose with AI**. The activity feed shows each step live:
+   - **Baseline:** `system_overview` plus the playbook's checks run immediately, so even a small model starts from real evidence.
+   - **Investigate:** the LLM calls more **read-only** diagnostics until it understands the problem (`AGENT_MAX_STEPS`, default 3).
+   - **Report:** root cause, confidence, evidence, proposed fixes and manual steps.
+4. Each proposed fix has an **Apply fix** button with a risk badge (low / medium / high) and a confirmation step. After a fix runs, the agent re-runs the checks and marks the session **Resolved** or **Not resolved**.
 
-## Run
+Diagnostic tools (read-only): system overview, top processes, cleanup candidates, startup programs, internet connectivity (gateway, DNS, TCP, HTTP and captive-portal checks), ping, DNS lookup, Wi-Fi status, security posture, grouped event-log errors, recent crashes/BSODs, service status, failed services, update status, battery health, disk SMART health, printer status, performance benchmark.
 
-```powershell
-uvicorn backend.main:app --reload
-```
+Fix tools: clear temp files, empty recycle bin, clear the Windows Update cache, flush DNS, renew IP, reset network stack (Windows), restart an allow-listed service, kill a process (PID + exact name), disable/restore a startup item (Windows), clear the print queue, trigger an update scan, sync time, SFC and DISM repair (Windows).
 
-Open `http://127.0.0.1:8000` in a browser. The dashboard opens a WebSocket at `/ws/monitor` and refreshes live snapshots every five seconds. The REST endpoints include:
+All tools live in one shared, allow-listed registry, [agent/toolkit/](agent/toolkit/), used by both the server and the agents.
 
-- `GET /api/diagnostics`
-- `GET /api/diagnostics/health`
-- `GET /api/diagnostics/security` — read-only firewall/antivirus/disk-encryption/patch/listening-port checks, cached 5 minutes and refreshed automatically in the background
-- `GET` and `POST /api/diagnostics/performance` — on-demand CPU/disk/network benchmark (`GET` returns the last cached result or 404, `POST` runs a fresh test); this briefly writes a temp file and uses CPU/network, so it never runs on a timer for the local server
-- `GET /api/diagnostics/logs` — recent Warning/Error/Critical entries from the OS event log (Windows Event Viewer, journald, or the macOS unified log), cached 10 minutes and refreshed automatically in the background
-- `POST /api/diagnostics/logs/diagnose` — AI root-cause analysis of the latest event log snapshot
-- `GET /api/alerts`
-- `POST /api/agent/diagnose`
-- `GET` and `POST /api/agent/chat`
-- `POST /api/agent/action`
+## Add remote agents (one command, Wazuh-style)
 
-Every registered remote device also exposes `GET /api/agents/{device_id}/security`, `GET /api/agents/{device_id}/performance`, and `GET /api/agents/{device_id}/logs` once it has reported that data.
+Open **Add Agent**:
 
-## Add remote agents
+1. Check the server address that devices will use, e.g. `http://192.168.1.20:8000`. You can also set `SENTINEL_PUBLIC_URL` in `.env`.
+2. Enter `ADMIN_API_KEY` and click **Generate token**. The token is single-use and valid for 24 hours.
+3. Copy the command for the device's OS and run it there:
 
-Open the **Agents** tab and choose **Add new device**. Click **Generate agent token**, then copy the token into the remote machine's `agent/agent_config.json`:
+   ```powershell
+   # Windows (PowerShell as Administrator)
+   irm "http://SERVER:8000/install/windows.ps1?token=TOKEN" | iex
+   ```
+
+   ```bash
+   # Linux
+   curl -fsSL "http://SERVER:8000/install/linux.sh?token=TOKEN" | sudo bash
+   # macOS
+   curl -fsSL "http://SERVER:8000/install/macos.sh?token=TOKEN" | sudo bash
+   ```
+
+The script does the following:
+
+- uses a prebuilt binary from `agent_builds/` if one exists; otherwise it downloads the Python agent bundle into a private venv (on Windows it installs Python via winget if it is missing),
+- writes `agent_config.json`,
+- registers a service: a Scheduled Task running as SYSTEM on Windows, a systemd unit on Linux, a LaunchDaemon on macOS.
+
+The page waits until the new device connects. Uninstall commands are under **Uninstall command / manual install**.
+
+Agents are **pull-based**: they send outbound reports and long-poll `GET /api/agents/tasks/next` for work. No inbound port is opened on the device, so agents behind NAT work too.
+
+Optional per-device policy in `agent_config.json`:
 
 ```json
 {
-	"server_url": "http://central-server:8000",
-	"AGENT_TOKEN": "token-from-the-dashboard",
-	"nickname": "Finance laptop",
-	"interval_seconds": 10
+  "server_url": "http://192.168.1.20:8000",
+  "AGENT_TOKEN": "token-from-the-dashboard",
+  "nickname": "Finance laptop",
+  "interval_seconds": 10,
+  "allow_remediation": true,
+  "max_risk": "high"
 }
 ```
 
-The agent can run from source on Windows, macOS, or Linux:
+Set `"allow_remediation": false` to allow diagnostics only, or set `"max_risk": "low"` or `"medium"` to refuse riskier fixes. The device enforces this itself, whatever the server asks.
+
+## Security model
+
+- **No arbitrary commands.** The LLM can only name registered tools. Arguments are schema-validated, and commands run as argument lists, never through a shell. Service restarts use an allow-list, and process kills need the exact PID and name; system processes are refused.
+- **The AI cannot fix things by itself.** During investigation it only sees read-only tools. Proposed fixes are validated against the registry, and each one runs only after an operator clicks **Apply**. The exception is `AUTO_FIX_MAX_RISK` (default `none`), which lets you allow, for example, `low`-risk fixes automatically.
+- **Audit trail.** Every fix (device, tool, arguments, who approved it, result) is recorded. See `GET /api/troubleshoot/audit`.
+- **Dashboard login.** Set `DASHBOARD_PASSWORD` (or, as a fallback, `ADMIN_API_KEY`) and all pages, APIs and WebSockets require signing in at `/login`. Agent endpoints (`/api/agents/register`, `/report`, `/tasks/*`, `/install/*`, the bundle) use their own agent or enrollment token instead.
+- **LAN only.** There is no built-in HTTPS, and install scripts over plain HTTP are only safe on a trusted network. For remote sites, put a reverse proxy with HTTPS (nginx, Caddy) in front, and never expose the server directly to the internet.
+
+## Configuration (`.env`)
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LLM_PROVIDER` | `ollama` | `ollama` or `groq` |
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama server |
+| `OLLAMA_MODEL` | `qwen2.5:3b` | Model; use `qwen2.5:7b` when RAM allows |
+| `OLLAMA_NUM_CTX` | `8192` | Context window |
+| `OLLAMA_TIMEOUT_SECONDS` | `600` | Per-call timeout |
+| `OLLAMA_KEEP_ALIVE` | `10m` | How long the model stays in RAM |
+| `GROQ_API_KEY`, `GROQ_MODEL` | — | Optional cloud fallback |
+| `AGENT_MAX_STEPS` | `3` | Extra AI investigation rounds after the baseline |
+| `AUTO_FIX_MAX_RISK` | `none` | Auto-apply fixes up to `low` / `medium` / `high` |
+| `ADMIN_API_KEY` | — | Required to generate enrollment tokens |
+| `DASHBOARD_PASSWORD` | — | Enables the dashboard login |
+| `SENTINEL_PUBLIC_URL` | browser URL | Server address written into install scripts |
+
+## API overview
+
+- Monitoring: `GET /api/diagnostics`, `/api/diagnostics/health`, `/api/diagnostics/security`, `GET|POST /api/diagnostics/performance`, `/api/diagnostics/logs`, `POST /api/diagnostics/logs/diagnose`, `GET /api/alerts`, WebSocket `/ws/monitor`
+- Troubleshooting:
+  - `GET /api/troubleshoot/playbooks`, `/targets`, `/tools?device_id=`, `/sessions`, `/audit`
+  - `POST /api/troubleshoot` `{issue, device_id, playbook_id?}`
+  - `GET /api/troubleshoot/{id}`
+  - `POST /api/troubleshoot/{id}/fixes/{index}/apply`
+  - WebSocket `/ws/troubleshoot/{id}`
+- AI: `GET /api/ai/status`, `POST /api/agent/diagnose`, `GET|POST /api/agent/chat`, `POST /api/agent/action`
+- Fleet:
+  - `GET /api/agents`, `/api/agents/{id}/diagnostics|security|performance|logs|alerts|tasks`, `DELETE /api/agents/{id}`
+  - `POST /api/agents/generate-token`
+- Agent channel (agent token): `POST /api/agents/register`, `POST /api/agents/report`, `GET /api/agents/tasks/next`, `POST /api/agents/tasks/{task_id}/result`
+- Enrollment (enrollment token): `GET /install/{windows.ps1|linux.sh|macos.sh}?token=`, `GET /api/agents/bundle?token=`, `GET /api/agents/binary/{windows|linux|mac}?token=`
+
+## Tests
 
 ```powershell
-pip install -r agent_requirements.txt
-python monitor_agent.py
+pip install pytest
+python -m pytest tests
 ```
 
-Use the platform installer helpers in `agent/` for background startup. For binaries, build on the target operating system with PyInstaller and place them under `agent_builds/`; PyInstaller does not cross-compile. The central server marks devices offline after 30 seconds without a report and keeps device-scoped snapshots and alerts in SQLite.
+## Building agent binaries (optional)
 
-Every report from an agent also includes a read-only security snapshot (refreshed every 5 minutes), a read-only event log snapshot (refreshed every 10 minutes), and, unless disabled, a periodic performance benchmark (`enable_performance_benchmark` / `performance_interval_seconds` in `agent_config.json`, default every 30 minutes) — see `agent/README.md`.
-
-All local actions are explicitly whitelisted and read-only. No command execution, file deletion, or process termination is performed. The performance benchmark is the one exception: it writes a small temp file to measure real disk throughput and deletes it immediately afterward. The earlier `device_diagnostic.py` command-line tool remains available if needed.
+Build on each target OS (PyInstaller does not cross-compile). See [agent/README.md](agent/README.md). Place the outputs under `agent_builds/` and the install scripts will use them automatically.

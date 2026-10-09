@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 psutil
+httpx
 groq
 python-dotenv
 websockets

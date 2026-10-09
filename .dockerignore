@@ -1,0 +1,15 @@
+.git
+.gitattributes
+.claude
+.vscode
+venv
+**/__pycache__
+*.pyc
+.env
+*.db
+data
+models
+tests
+agent_build_work
+.pytest_cache
+docs

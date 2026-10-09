@@ -11,17 +11,21 @@ import time
 import uuid
 from pathlib import Path
 
+import threading
+
 import psutil
 import requests
 
 try:
-    from security_checks import collect_security_report
-    from performance_checks import collect_performance_report
-    from event_logs import collect_event_log_report
+    from toolkit import TOOLKIT_VERSION, risk_rank, run_tool
+    from toolkit.event_logs import collect_event_log_report
+    from toolkit.performance_checks import collect_performance_report
+    from toolkit.security_checks import collect_security_report
 except ImportError:
-    from .security_checks import collect_security_report
-    from .performance_checks import collect_performance_report
-    from .event_logs import collect_event_log_report
+    from .toolkit import TOOLKIT_VERSION, risk_rank, run_tool
+    from .toolkit.event_logs import collect_event_log_report
+    from .toolkit.performance_checks import collect_performance_report
+    from .toolkit.security_checks import collect_security_report
 
 AGENT_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 CONFIG_PATH = AGENT_DIR / "agent_config.json"
@@ -30,6 +34,7 @@ DEFAULT_INTERVAL = 10
 SECURITY_REFRESH_SECONDS = 300
 EVENT_LOG_REFRESH_SECONDS = 600
 DEFAULT_PERFORMANCE_INTERVAL_SECONDS = 1800
+TASK_POLL_WAIT_SECONDS = 25
 logging.basicConfig(filename=LOG_PATH, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 _security_cache = {"data": None, "checked_at": 0}
 _performance_cache = {"data": None, "checked_at": 0}
@@ -127,7 +132,7 @@ def collect_report(config):
 def load_config():
     if not CONFIG_PATH.exists():
         raise RuntimeError(f"Create {CONFIG_PATH} with server_url, AGENT_TOKEN, and nickname")
-    with CONFIG_PATH.open(encoding="utf-8") as config_file:
+    with CONFIG_PATH.open(encoding="utf-8-sig") as config_file:
         config = json.load(config_file)
     if not config.get("AGENT_TOKEN") and config.get("token"):
         config["AGENT_TOKEN"] = config["token"]
@@ -166,9 +171,58 @@ def register(config):
     return device_id
 
 
+def _task_result_for(config, task):
+    """Run a server-requested tool, enforcing this device's own remediation policy first."""
+    tool_id = task.get("tool_id")
+    server_limit = task.get("max_risk", "read")
+    if not config.get("allow_remediation", True):
+        local_limit = "read"
+    else:
+        local_limit = str(config.get("max_risk", "high")).lower()
+    limit = server_limit if risk_rank(server_limit) <= risk_rank(local_limit) else local_limit
+    result = run_tool(tool_id, task.get("args") or {}, max_risk=limit)
+    if not result["ok"] and result["summary"].endswith(f"(limit: {limit})") and limit == local_limit:
+        result["summary"] = f"Refused by this device's policy: {tool_id} needs '{result.get('risk')}' but agent_config.json allows up to '{local_limit}'"
+    return result
+
+
+def task_worker(config, device_id):
+    """Long-poll the server for diagnose/fix tasks (outbound only, works behind NAT)."""
+    base = config["server_url"].rstrip("/")
+    headers = {"Authorization": "Bearer " + config["AGENT_TOKEN"]}
+    delay = 2
+    while True:
+        try:
+            response = requests.get(f"{base}/api/agents/tasks/next", headers=headers, params={"wait": TASK_POLL_WAIT_SECONDS}, timeout=TASK_POLL_WAIT_SECONDS + 15)
+            if response.status_code == 404:
+                logging.warning("Server does not support remote tasks; task polling disabled")
+                return
+            response.raise_for_status()
+            task = response.json().get("task")
+            delay = 2
+            if not task:
+                continue
+            logging.info("Running task %s: %s %s", task["task_id"], task["tool_id"], task.get("args"))
+            result = _task_result_for(config, task)
+            logging.info("Task %s finished ok=%s: %s", task["task_id"], result["ok"], result["summary"])
+            for attempt in range(5):
+                try:
+                    posted = requests.post(f"{base}/api/agents/tasks/{task['task_id']}/result", headers=headers, json=result, timeout=30)
+                    if posted.status_code < 500:
+                        break
+                except requests.RequestException:
+                    pass
+                time.sleep(2 ** attempt)
+        except Exception as error:
+            logging.warning("Task polling failed: %s; retrying in %ss", error, delay)
+            time.sleep(delay)
+            delay = min(delay * 2, 60)
+
+
 def run():
     config = load_config()
     device_id = register(config)
+    threading.Thread(target=task_worker, args=(config, device_id), name="sentinel-tasks", daemon=True).start()
     previous = None
     interval = max(2, int(config.get("interval_seconds", DEFAULT_INTERVAL)))
     logging.info("Agent %s started for device %s", config.get("nickname", socket.gethostname()), device_id)
@@ -179,7 +233,7 @@ def run():
         cpu_now = report["cpu"]["total_usage_percent"]
         ram_now = report["memory"]["ram"]["usage_percent"]
         spike = cpu_now - cpu_before > 40 or ram_now - ram_before > 40
-        payload = {"device_id": device_id, "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "diagnostics": report, "spike_detected": spike}
+        payload = {"device_id": device_id, "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "diagnostics": report, "spike_detected": spike, "agent_version": TOOLKIT_VERSION}
         try:
             request_with_retry("POST", config["server_url"].rstrip("/") + "/api/agents/report", headers={"Authorization": "Bearer " + config["AGENT_TOKEN"]}, json=payload)
             logging.info("Report sent; spike_detected=%s", spike)

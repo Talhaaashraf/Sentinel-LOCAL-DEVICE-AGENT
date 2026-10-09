@@ -6,9 +6,8 @@ import secrets
 import sqlite3
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "alerts.db"
+from .config import DB_PATH
 OFFLINE_SECONDS = 30
 
 
@@ -58,6 +57,10 @@ def _connect():
         if column not in columns:
             connection.execute(f"ALTER TABLE devices ADD COLUMN {column} {definition}")
 
+    # Devices enrolled before the fix above inherited the enrollment expiry and would
+    # silently stop authenticating 24h later; clear it.
+    connection.execute("UPDATE devices SET token_expires_at = NULL WHERE token_expires_at IS NOT NULL")
+
     legacy_rows = connection.execute(
         "SELECT device_id, agent_token FROM devices WHERE agent_token_hash IS NULL AND agent_token IS NOT NULL"
     ).fetchall()
@@ -100,7 +103,9 @@ def register_device(token, hostname, os_type, nickname="", device_id=None):
                 connection.execute("DELETE FROM pending_agent_tokens WHERE token_hash = ?", (token_hash,))
                 connection.commit()
                 raise ValueError("Agent token has expired")
-            token_expires_at = pending["expires_at"]
+            # The 24h expiry only limits how long an unclaimed enrollment token is valid;
+            # once a device claims it, the token becomes that device's permanent credential.
+            token_expires_at = None
             connection.execute("DELETE FROM pending_agent_tokens WHERE token_hash = ?", (token_hash,))
         elif existing:
             token_expires_at = existing["token_expires_at"]
@@ -139,6 +144,25 @@ def get_device_by_token(token):
         if row["token_expires_at"] and datetime.fromisoformat(row["token_expires_at"]) <= datetime.now(timezone.utc):
             return None
         return dict(row)
+
+
+def get_device(device_id):
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT device_id, nickname, hostname, os_type, first_seen, last_seen, status FROM devices WHERE device_id = ?", (device_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def is_valid_install_token(token):
+    """True for an unexpired enrollment token or a token an enrolled device already owns (re-install)."""
+    if not token:
+        return False
+    with _connect() as connection:
+        pending = connection.execute("SELECT expires_at FROM pending_agent_tokens WHERE token_hash = ?", (hash_token(token),)).fetchone()
+    if pending:
+        return datetime.fromisoformat(pending["expires_at"]) > datetime.now(timezone.utc)
+    return get_device_by_token(token) is not None
 
 
 def delete_device(device_id):

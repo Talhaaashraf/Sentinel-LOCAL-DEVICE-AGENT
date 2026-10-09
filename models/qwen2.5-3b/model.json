@@ -1,0 +1,6 @@
+{
+  "name": "qwen2.5:3b",
+  "file": "model.gguf",
+  "size_bytes": 1929903008,
+  "sha256": "5ee4f07cdb9beadbbb293e85803c569b01bd37ed059d2715faa7bb405f31caa6"
+}

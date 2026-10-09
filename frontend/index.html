@@ -1,60 +1,95 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sentinel Device Health</title>
+  <title>Sentinel · AI IT Troubleshooter</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b8cff'/%3E%3Cpath d='M16 6l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V9z' fill='white'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/style.css">
+  <script>
+    try { const saved = localStorage.getItem('sentinel-theme'); if (saved) document.documentElement.dataset.theme = saved; } catch (_error) {}
+  </script>
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L20 10l-5.8 1.7L12 18l-2.2-6.3L4 10l5.8-1.7zM19 15l1 2.6 2.6 1-2.6 1L19 22l-1-2.4-2.6-1 2.6-1z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M12 22a2.5 2.5 0 002.4-2h-4.8A2.5 2.5 0 0012 22zm7-6V11a7 7 0 00-5.5-6.8V3a1.5 1.5 0 00-3 0v1.2A7 7 0 005 11v5l-2 2v1h18v-1z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5.3-3.4 10-8 11-4.6-1-8-5.7-8-11V5z"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 4a10 10 0 00-8.7 15h17.4A10 10 0 0012 4zm1.4 10.6a2 2 0 11-2.8-2.8L17 8z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 5h2v2H4zm4 0h12v2H8zM4 11h2v2H4zm4 0h12v2H8zm-4 6h2v2H4zm4 0h12v2H8z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 4h16a1 1 0 011 1v11a1 1 0 01-1 1H9l-5 4v-4H4a1 1 0 01-1-1V5a1 1 0 011-1z"/></symbol>
+    <symbol id="i-brain" viewBox="0 0 24 24"><path d="M9 3a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 001 5 3 3 0 004 4 3 3 0 002-1V4a3 3 0 00-2-1zm6 0a3 3 0 013 3 3 3 0 012 5 3 3 0 01-1 5 3 3 0 01-4 4 3 3 0 01-2-1V4a3 3 0 012-1z"/></symbol>
+    <symbol id="i-devices" viewBox="0 0 24 24"><path d="M3 5h14v9H3zm-2 11h18v2H1zM19 8h4v12h-4z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.5A8.5 8.5 0 018.5 4a8.5 8.5 0 1011.5 11.5z"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H4v16h6v-2H6V6h4zm5 3l-1.4 1.4 2.6 2.6H9v2h7.2l-2.6 2.6L15 17l5-5z"/></symbol>
+  </svg>
+
   <div class="app-shell">
 
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-mark">S</span>
+        <span class="brand-mark"><svg><use href="#i-shield"/></svg></span>
         <div>
           <strong>Sentinel</strong>
-          <small>AI-POWERED DEVICE DIAGNOSTICS</small>
+          <small>AI IT TROUBLESHOOTER</small>
         </div>
       </div>
 
       <nav aria-label="Primary navigation">
-        <button class="nav-item active" data-tab="dashboard"><span>01</span>Dashboard</button>
-        <button class="nav-item" data-tab="alerts"><span>02</span>Alerts <b id="alert-count">0</b></button>
-        <button class="nav-item" data-tab="security"><span>03</span>Security</button>
-        <button class="nav-item" data-tab="performance"><span>04</span>Performance</button>
-        <button class="nav-item" data-tab="logs"><span>05</span>Event Logs</button>
-        <button class="nav-item" data-tab="technician"><span>06</span>Ask Technician</button>
-        <button class="nav-item" data-tab="agents"><span>07</span>Agents <b id="agent-count">0</b></button>
+        <p class="nav-group">Operate</p>
+        <button class="nav-item active" data-tab="dashboard"><svg><use href="#i-dashboard"/></svg>Dashboard</button>
+        <button class="nav-item nav-highlight" data-tab="troubleshoot"><svg><use href="#i-spark"/></svg>What's the issue?</button>
+        <button class="nav-item" data-tab="alerts"><svg><use href="#i-bell"/></svg>Alerts <b id="alert-count">0</b></button>
+        <p class="nav-group">Health</p>
+        <button class="nav-item" data-tab="security"><svg><use href="#i-shield"/></svg>Security</button>
+        <button class="nav-item" data-tab="performance"><svg><use href="#i-gauge"/></svg>Performance</button>
+        <button class="nav-item" data-tab="logs"><svg><use href="#i-list"/></svg>Event Logs</button>
+        <p class="nav-group">AI</p>
+        <button class="nav-item" data-tab="technician"><svg><use href="#i-chat"/></svg>Ask Technician</button>
+        <button class="nav-item" data-tab="learning"><svg><use href="#i-brain"/></svg>Learning <b id="learn-count"></b></button>
+        <p class="nav-group">Fleet</p>
+        <button class="nav-item" data-tab="agents"><svg><use href="#i-devices"/></svg>Agents <b id="agent-count">0</b></button>
+        <button class="nav-item" data-tab="add-agent"><svg><use href="#i-plus"/></svg>Add Agent</button>
       </nav>
 
-      <div id="connection-state" class="connection-state">
-        <span id="connection-dot"></span>
-        <div>
-          <strong id="connection-label">Connecting</strong>
-          <small id="connection-detail">Opening monitor stream</small>
+      <div class="sidebar-foot">
+        <div id="connection-state" class="connection-state">
+          <span id="connection-dot"></span>
+          <div>
+            <strong id="connection-label">Connecting</strong>
+            <small id="connection-detail">Opening monitor stream</small>
+          </div>
+        </div>
+        <div class="sidebar-actions">
+          <button id="theme-toggle" class="icon-button" title="Toggle light / dark theme"><svg><use href="#i-moon"/></svg>Theme</button>
+          <a href="/logout" class="icon-button sidebar-logout" title="Sign out"><svg><use href="#i-logout"/></svg>Sign out</a>
         </div>
       </div>
-      <p class="sidebar-note">A private, local-first, AI-assisted health monitor for this device and its fleet.</p>
-      <a href="/logout" class="sidebar-logout">Sign out</a>
     </aside>
 
     <main class="content">
+      <div class="topbar">
+        <span id="ai-chip" class="ai-chip"><span class="dot"></span><span id="ai-chip-text">AI: checking...</span></span>
+        <span id="last-updated" class="timestamp">Waiting for telemetry</span>
+      </div>
+
       <div id="ai-banner" class="ai-banner hidden">
-        <span>AI TECHNICIAN</span>
-        <strong>Unavailable</strong>
-        <p>Set <code>GROQ_API_KEY</code> in `.env` to enable diagnosis and chat. Local monitoring remains active.</p>
+        <span>AI OFFLINE</span>
+        <strong>The AI technician is unavailable</strong>
+        <p id="ai-banner-detail">Install Ollama and pull a model (<code>ollama pull qwen2.5:3b</code>) to enable AI troubleshooting and chat. Local monitoring remains active.</p>
       </div>
 
       <!-- ============================== DASHBOARD ============================== -->
       <section id="dashboard" class="tab active-tab">
         <header class="page-heading">
           <div>
-            <p class="kicker">DEVICE / LIVE MONITOR</p>
+            <p class="kicker">Live monitor</p>
             <h1>System overview</h1>
-            <p class="subheading">Real-time signals from this endpoint.</p>
+            <p class="subheading">Real-time signals from the Sentinel server. Remote devices are listed under Agents.</p>
           </div>
-          <span id="last-updated" class="timestamp">Waiting for telemetry</span>
+          <button class="primary-button" data-goto="troubleshoot"><svg><use href="#i-spark"/></svg>Something wrong? Diagnose</button>
         </header>
 
         <div id="health-banner" class="health-banner loading">
@@ -68,35 +103,35 @@
 
         <div class="metric-grid">
           <article class="metric-card">
-            <div class="metric-head"><span>CPU LOAD</span><span id="cpu-state" class="metric-state">--</span></div>
+            <div class="metric-head"><span>CPU load</span><span id="cpu-state" class="metric-state">--</span></div>
             <div class="gauge" id="cpu-gauge"><strong id="cpu-value">--</strong><small>%</small></div>
             <p id="cpu-detail">Waiting</p>
           </article>
           <article class="metric-card">
-            <div class="metric-head"><span>MEMORY</span><span id="ram-state" class="metric-state">--</span></div>
+            <div class="metric-head"><span>Memory</span><span id="ram-state" class="metric-state">--</span></div>
             <div class="gauge" id="ram-gauge"><strong id="ram-value">--</strong><small>%</small></div>
             <p id="ram-detail">Waiting</p>
           </article>
           <article class="metric-card">
-            <div class="metric-head"><span>DISK CAPACITY</span><span id="disk-state" class="metric-state">--</span></div>
+            <div class="metric-head"><span>Disk capacity</span><span id="disk-state" class="metric-state">--</span></div>
             <div class="gauge" id="disk-gauge"><strong id="disk-value">--</strong><small>%</small></div>
             <p id="disk-detail">Waiting</p>
           </article>
           <article class="metric-card">
-            <div class="metric-head"><span>NETWORK</span><span id="network-state" class="metric-state">--</span></div>
+            <div class="metric-head"><span>Network</span><span id="network-state" class="metric-state">--</span></div>
             <div class="metric-number" id="network-value">--</div>
             <p id="network-detail">Waiting</p>
           </article>
           <article class="metric-card">
-            <div class="metric-head"><span>BATTERY</span><span id="battery-state" class="metric-state">--</span></div>
+            <div class="metric-head"><span>Battery</span><span id="battery-state" class="metric-state">--</span></div>
             <div class="metric-number" id="battery-value">--</div>
             <p id="battery-detail">Waiting</p>
           </article>
         </div>
 
-        <section class="overview-panel">
+        <section class="panel">
           <div class="section-heading">
-            <div><p class="kicker">ENDPOINT IDENTITY</p><h2>System overview</h2></div>
+            <div><p class="kicker">Endpoint identity</p><h2>This server</h2></div>
             <span id="process-count" class="soft-label">-- processes</span>
           </div>
           <div class="overview-grid">
@@ -108,33 +143,99 @@
         </section>
       </section>
 
+      <!-- ============================== TROUBLESHOOT ============================== -->
+      <section id="troubleshoot" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">Agentic AI · automated diagnosis</p>
+            <h1>What's the issue?</h1>
+            <p class="subheading">Describe the problem. The AI agent runs diagnostics on the selected device, finds the root cause and proposes fixes you can apply with one click. It learns from every ticket it resolves.</p>
+          </div>
+          <span id="ai-model-label" class="soft-label">AI: checking...</span>
+        </header>
+
+        <div class="ts-layout">
+          <section class="panel ts-form">
+            <label class="field-label" for="ts-device">Device</label>
+            <select id="ts-device" class="field-input"></select>
+            <label class="field-label" for="ts-issue">Describe the issue</label>
+            <textarea id="ts-issue" class="field-input" rows="3" maxlength="1000" placeholder="e.g. Internet is very slow since this morning / the laptop hangs whenever Chrome is open"></textarea>
+            <p class="field-label">Or pick a common problem</p>
+            <div id="ts-playbooks" class="playbook-grid"></div>
+            <div class="ts-actions">
+              <button id="ts-start" class="primary-button"><svg><use href="#i-spark"/></svg>Diagnose with AI</button>
+              <span id="ts-form-status" class="soft-label"></span>
+            </div>
+          </section>
+          <aside class="panel ts-history">
+            <div class="section-heading"><div><p class="kicker">History</p><h2>Recent sessions</h2></div><button id="ts-refresh-history" class="ghost-button">Refresh</button></div>
+            <div id="ts-history" class="ts-history-list"><p class="soft-label">No sessions yet.</p></div>
+          </aside>
+        </div>
+
+        <section id="ts-session" class="panel hidden">
+          <div class="section-heading">
+            <div><p class="kicker" id="ts-session-device">Session</p><h2 id="ts-session-issue">--</h2></div>
+            <span id="ts-session-status" class="status-pill">--</span>
+          </div>
+          <div class="ts-columns">
+            <div>
+              <h3 class="ts-subhead">Agent activity</h3>
+              <ol id="ts-steps" class="ts-steps"></ol>
+            </div>
+            <div>
+              <h3 class="ts-subhead">Diagnosis &amp; fixes</h3>
+              <div id="ts-report" class="ts-report"><p class="soft-label">The agent is collecting evidence...</p></div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ============================== ALERTS ============================== -->
+      <section id="alerts" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">Event stream · local rules</p>
+            <h1>Alert history</h1>
+            <p class="subheading">Persistent signals detected by the local rules engine.</p>
+          </div>
+          <button id="refresh-alerts" class="ghost-button">Refresh history</button>
+        </header>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Severity</th><th>Category</th><th>Description</th><th></th></tr></thead>
+            <tbody id="alerts-body"><tr><td colspan="5" class="empty-state">Loading alert history...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
       <!-- ============================== SECURITY ============================== -->
       <section id="security" class="tab">
         <header class="page-heading">
           <div>
-            <p class="kicker">POSTURE / LOCAL RULES</p>
+            <p class="kicker">Posture · local rules</p>
             <h1>Security</h1>
-            <p class="subheading">Firewall, antivirus, disk encryption, updates, and exposed ports on this device.</p>
+            <p class="subheading">Firewall, antivirus, disk encryption, updates, and exposed ports.</p>
           </div>
           <button id="refresh-security" class="ghost-button">Re-scan now</button>
         </header>
 
         <div class="metric-grid status-grid">
-          <article class="metric-card" id="firewall-card"><div class="metric-head"><span>FIREWALL</span><span id="firewall-state" class="metric-state">--</span></div><p id="firewall-detail">Waiting</p></article>
-          <article class="metric-card" id="antivirus-card"><div class="metric-head"><span>ANTIVIRUS</span><span id="antivirus-state" class="metric-state">--</span></div><p id="antivirus-detail">Waiting</p></article>
-          <article class="metric-card" id="encryption-card"><div class="metric-head"><span>DISK ENCRYPTION</span><span id="encryption-state" class="metric-state">--</span></div><p id="encryption-detail">Waiting</p></article>
-          <article class="metric-card" id="updates-card"><div class="metric-head"><span>UPDATES</span><span id="updates-state" class="metric-state">--</span></div><p id="updates-detail">Waiting</p></article>
-          <article class="metric-card" id="admin-card"><div class="metric-head"><span>PRIVILEGE</span><span id="admin-state" class="metric-state">--</span></div><p id="admin-detail">Waiting</p></article>
+          <article class="metric-card" id="firewall-card"><div class="metric-head"><span>Firewall</span><span id="firewall-state" class="metric-state">--</span></div><p id="firewall-detail">Waiting</p></article>
+          <article class="metric-card" id="antivirus-card"><div class="metric-head"><span>Antivirus</span><span id="antivirus-state" class="metric-state">--</span></div><p id="antivirus-detail">Waiting</p></article>
+          <article class="metric-card" id="encryption-card"><div class="metric-head"><span>Disk encryption</span><span id="encryption-state" class="metric-state">--</span></div><p id="encryption-detail">Waiting</p></article>
+          <article class="metric-card" id="updates-card"><div class="metric-head"><span>Updates</span><span id="updates-state" class="metric-state">--</span></div><p id="updates-detail">Waiting</p></article>
+          <article class="metric-card" id="admin-card"><div class="metric-head"><span>Privilege</span><span id="admin-state" class="metric-state">--</span></div><p id="admin-detail">Waiting</p></article>
         </div>
 
-        <section class="overview-panel">
+        <section class="panel">
           <div class="section-heading">
-            <div><p class="kicker">EXPOSURE</p><h2>Listening ports</h2></div>
+            <div><p class="kicker">Exposure</p><h2>Listening ports</h2></div>
             <span id="ports-count" class="soft-label">-- open</span>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap flat">
             <table>
-              <thead><tr><th>PORT</th><th>ADDRESS</th><th>PROCESS</th><th>RISK</th></tr></thead>
+              <thead><tr><th>Port</th><th>Address</th><th>Process</th><th>Risk</th></tr></thead>
               <tbody id="ports-body"><tr><td colspan="4" class="empty-state">Loading listening ports...</td></tr></tbody>
             </table>
           </div>
@@ -145,9 +246,9 @@
       <section id="performance" class="tab">
         <header class="page-heading">
           <div>
-            <p class="kicker">ACTIVE BENCHMARK</p>
+            <p class="kicker">Active benchmark</p>
             <h1>Performance</h1>
-            <p class="subheading">On-demand CPU, disk, and network throughput tests. Briefly uses CPU, disk, and network — runs only when you ask.</p>
+            <p class="subheading">On-demand CPU, disk, and network throughput tests. They briefly use CPU, disk, and network, so they run only when you ask.</p>
           </div>
           <button id="run-performance" class="primary-button">Run test now</button>
         </header>
@@ -156,8 +257,8 @@
 
         <div class="metric-grid status-grid">
           <article class="metric-card" id="perf-cpu-card"><div class="metric-head"><span>CPU</span><span id="perf-cpu-state" class="metric-state">--</span></div><p id="perf-cpu-detail">Not tested yet</p></article>
-          <article class="metric-card" id="perf-disk-card"><div class="metric-head"><span>DISK I/O</span><span id="perf-disk-state" class="metric-state">--</span></div><p id="perf-disk-detail">Not tested yet</p></article>
-          <article class="metric-card" id="perf-network-card"><div class="metric-head"><span>NETWORK</span><span id="perf-network-state" class="metric-state">--</span></div><p id="perf-network-detail">Not tested yet</p></article>
+          <article class="metric-card" id="perf-disk-card"><div class="metric-head"><span>Disk I/O</span><span id="perf-disk-state" class="metric-state">--</span></div><p id="perf-disk-detail">Not tested yet</p></article>
+          <article class="metric-card" id="perf-network-card"><div class="metric-head"><span>Network</span><span id="perf-network-state" class="metric-state">--</span></div><p id="perf-network-detail">Not tested yet</p></article>
         </div>
       </section>
 
@@ -165,57 +266,39 @@
       <section id="logs" class="tab">
         <header class="page-heading">
           <div>
-            <p class="kicker">EVENT VIEWER / SYSTEM LOGS</p>
+            <p class="kicker">Event viewer · system logs</p>
             <h1>Event Logs</h1>
-            <p class="subheading">Recent warning, error, and critical entries from the OS event log (Windows Event Viewer, journald, or the macOS unified log).</p>
+            <p class="subheading">Recent warning, error, and critical entries from Windows Event Viewer, journald, or the macOS unified log.</p>
           </div>
           <button id="refresh-logs" class="ghost-button">Re-scan now</button>
         </header>
 
         <div class="metric-grid status-grid">
-          <article class="metric-card" id="logs-critical-card"><div class="metric-head"><span>CRITICAL</span><span id="logs-critical-state" class="metric-state">--</span></div><p id="logs-critical-detail">Waiting</p></article>
-          <article class="metric-card" id="logs-error-card"><div class="metric-head"><span>ERRORS</span><span id="logs-error-state" class="metric-state">--</span></div><p id="logs-error-detail">Waiting</p></article>
-          <article class="metric-card" id="logs-warning-card"><div class="metric-head"><span>WARNINGS</span><span id="logs-warning-state" class="metric-state">--</span></div><p id="logs-warning-detail">Waiting</p></article>
+          <article class="metric-card" id="logs-critical-card"><div class="metric-head"><span>Critical</span><span id="logs-critical-state" class="metric-state">--</span></div><p id="logs-critical-detail">Waiting</p></article>
+          <article class="metric-card" id="logs-error-card"><div class="metric-head"><span>Errors</span><span id="logs-error-state" class="metric-state">--</span></div><p id="logs-error-detail">Waiting</p></article>
+          <article class="metric-card" id="logs-warning-card"><div class="metric-head"><span>Warnings</span><span id="logs-warning-state" class="metric-state">--</span></div><p id="logs-warning-detail">Waiting</p></article>
         </div>
 
-        <section class="overview-panel">
+        <section class="panel">
           <div class="section-heading">
-            <div><p class="kicker">ASSISTED ANALYSIS</p><h2>Recent events</h2></div>
+            <div><p class="kicker">Assisted analysis</p><h2>Recent events</h2></div>
             <button id="diagnose-logs-button" class="ghost-button">Diagnose with AI</button>
           </div>
           <div id="logs-diagnosis" class="diagnosis hidden"></div>
-          <div class="table-wrap">
+          <div class="table-wrap flat">
             <table>
-              <thead><tr><th>TIME</th><th>LEVEL</th><th>SOURCE</th><th>MESSAGE</th></tr></thead>
+              <thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
               <tbody id="logs-body"><tr><td colspan="4" class="empty-state">Loading event log...</td></tr></tbody>
             </table>
           </div>
         </section>
       </section>
 
-      <!-- ============================== ALERTS ============================== -->
-      <section id="alerts" class="tab">
-        <header class="page-heading">
-          <div>
-            <p class="kicker">EVENT STREAM / LOCAL RULES</p>
-            <h1>Alert history</h1>
-            <p class="subheading">Persistent signals detected by the local rules engine.</p>
-          </div>
-          <button id="refresh-alerts" class="ghost-button">Refresh history</button>
-        </header>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>TIME</th><th>SEVERITY</th><th>CATEGORY</th><th>DESCRIPTION</th><th></th></tr></thead>
-            <tbody id="alerts-body"><tr><td colspan="5" class="empty-state">Loading alert history...</td></tr></tbody>
-          </table>
-        </div>
-      </section>
-
       <!-- ============================== ASK TECHNICIAN ============================== -->
       <section id="technician" class="tab">
         <header class="page-heading">
           <div>
-            <p class="kicker">ASSISTED RESPONSE / GROQ</p>
+            <p class="kicker">Assisted response · local AI</p>
             <h1>Ask Technician</h1>
             <p class="subheading">Describe what you are seeing and get grounded, step-by-step help.</p>
           </div>
@@ -223,15 +306,15 @@
         <div class="chat-layout">
           <section class="chat-panel">
             <div id="chat-messages" class="chat-messages">
-              <div class="chat-message assistant">I am ready to help interpret this device's live health signals. What would you like to understand?</div>
+              <div class="chat-message assistant">I can explain this device's live health signals. What would you like to understand?</div>
             </div>
-            <form id="chat-form">
+            <form id="chat-form" class="chat-form">
               <input id="chat-input" autocomplete="off" placeholder="Why is my memory usage high?" aria-label="Ask the technician">
               <button type="submit">Send</button>
             </form>
           </section>
           <aside class="context-panel">
-            <p class="kicker">LIVE CONTEXT</p>
+            <p class="kicker">Live context</p>
             <h2>What I can see</h2>
             <dl>
               <div><dt>HOST</dt><dd id="chat-host">--</dd></div>
@@ -243,43 +326,126 @@
         </div>
       </section>
 
+      <!-- ============================== LEARNING ============================== -->
+      <section id="learning" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">Self-improving AI</p>
+            <h1>Learning</h1>
+            <p class="subheading">Every finished ticket becomes a learned case. Verified fixes and your 👍 / 👎 feedback are distilled into the <code id="learn-model-name">sentinel-tech</code> model, so the agent gets better with every issue it resolves.</p>
+          </div>
+          <div class="button-row">
+            <a id="learn-dataset" class="ghost-button" href="/api/learning/dataset">Export training data</a>
+            <button id="learn-rebuild" class="primary-button"><svg><use href="#i-brain"/></svg>Rebuild model now</button>
+          </div>
+        </header>
+
+        <div class="metric-grid status-grid">
+          <article class="metric-card"><div class="metric-head"><span>Cases learned</span></div><div class="metric-number" id="learn-total">--</div><p id="learn-trusted">--</p></article>
+          <article class="metric-card"><div class="metric-head"><span>Resolution rate</span></div><div class="metric-number" id="learn-rate">--</div><p id="learn-outcomes">--</p></article>
+          <article class="metric-card"><div class="metric-head"><span>Model version</span></div><div class="metric-number" id="learn-version">--</div><p id="learn-model-detail">--</p></article>
+        </div>
+        <p id="learn-status" class="soft-label"></p>
+
+        <div class="learn-layout">
+          <section class="panel">
+            <div class="section-heading"><div><p class="kicker">Knowledge</p><h2>Lessons learned</h2></div></div>
+            <ul id="learn-lessons" class="lesson-list"><li class="soft-label">No lessons yet. Resolve a few issues and give feedback.</li></ul>
+          </section>
+          <section class="panel">
+            <div class="section-heading"><div><p class="kicker">What works</p><h2>Most effective fixes</h2></div></div>
+            <div class="table-wrap flat">
+              <table class="compact-table">
+                <thead><tr><th>Fix</th><th>Resolved</th><th>Success</th></tr></thead>
+                <tbody id="learn-top-fixes"><tr><td colspan="3" class="empty-state">No applied fixes yet.</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel">
+          <div class="section-heading"><div><p class="kicker">Memory</p><h2>Learned cases</h2></div></div>
+          <div class="table-wrap flat">
+            <table>
+              <thead><tr><th>When</th><th>Issue</th><th>Root cause</th><th>Outcome</th><th>Feedback</th></tr></thead>
+              <tbody id="learn-cases"><tr><td colspan="5" class="empty-state">No cases yet.</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <!-- ============================== AGENTS ============================== -->
       <section id="agents" class="tab">
         <header class="page-heading">
           <div>
-            <p class="kicker">FLEET / REMOTE ENDPOINTS</p>
+            <p class="kicker">Fleet · remote endpoints</p>
             <h1>Agents</h1>
             <p class="subheading">One central view of every connected device.</p>
           </div>
-          <button id="add-agent-button" class="primary-button">Add new device</button>
+          <button id="add-agent-button" class="primary-button"><svg><use href="#i-plus"/></svg>Add new device</button>
         </header>
         <div id="os-count-summary" class="os-count-summary"></div>
         <div id="agents-grid" class="agents-grid"><div class="empty-state">Loading registered devices...</div></div>
         <section id="device-detail" class="device-detail hidden"></section>
       </section>
 
+      <!-- ============================== ADD AGENT ============================== -->
+      <section id="add-agent" class="tab">
+        <header class="page-heading">
+          <div>
+            <p class="kicker">Fleet · one-line enrollment</p>
+            <h1>Add an agent</h1>
+            <p class="subheading">Run one command on any Windows, Linux or macOS machine. It installs the Sentinel agent as a background service, connects it to this server, and lets the AI diagnose and fix it remotely.</p>
+          </div>
+        </header>
+
+        <div class="enroll-steps">
+          <section class="panel enroll-step">
+            <span class="step-number">1</span>
+            <h2>Server address</h2>
+            <p class="modal-copy">The address the remote device uses to reach this server.</p>
+            <input id="enroll-server" class="field-input" autocomplete="off" spellcheck="false">
+            <p id="enroll-server-warning" class="enroll-warning hidden">This address only works on this computer. To add other devices, enter this machine's LAN IP, e.g. <code>http://192.168.1.20:8000</code>. Installing the agent on this same laptop works as is.</p>
+          </section>
+
+          <section class="panel enroll-step">
+            <span class="step-number">2</span>
+            <h2>Enrollment token</h2>
+            <p class="modal-copy">A one-time token, valid for 24 hours, that lets one device register.</p>
+            <div class="enroll-row">
+              <input id="admin-key-input" class="field-input" type="password" placeholder="Admin API key (ADMIN_API_KEY in .env)" autocomplete="off">
+              <button id="generate-token-button" class="primary-button">Generate token</button>
+            </div>
+            <div id="token-result" class="token-result hidden"></div>
+          </section>
+
+          <section class="panel enroll-step">
+            <span class="step-number">3</span>
+            <h2>Run on the device</h2>
+            <div class="platform-tabs">
+              <button data-platform="windows" class="platform-tab active">Windows</button>
+              <button data-platform="linux" class="platform-tab">Linux</button>
+              <button data-platform="mac" class="platform-tab">macOS</button>
+            </div>
+            <p id="install-hint" class="modal-copy"></p>
+            <div class="code-block"><code id="install-command">Generate a token first.</code><button id="copy-install" class="ghost-button" disabled>Copy</button></div>
+            <p id="enroll-wait" class="enroll-wait hidden"><span class="health-pulse"></span><span id="enroll-wait-text">Waiting for the device to connect...</span></p>
+            <details class="enroll-more">
+              <summary>Uninstall command / manual install</summary>
+              <p class="modal-copy">Uninstall:</p>
+              <div class="code-block"><code id="uninstall-command"></code></div>
+              <p class="modal-copy">Manual: copy the <code>agent/</code> folder to the device, create <code>agent_config.json</code> from <code>agent_config.example.json</code>, then run <code>pip install -r agent_requirements.txt &amp;&amp; python monitor_agent.py</code>.</p>
+              <button id="download-agent-button" class="ghost-button">Download prebuilt binary</button>
+              <div id="install-instructions" class="install-instructions hidden"></div>
+            </details>
+          </section>
+        </div>
+      </section>
+
     </main>
   </div>
 
-  <div id="agent-modal" class="modal hidden">
-    <div class="modal-card">
-      <button id="close-agent-modal" class="modal-close" aria-label="Close">x</button>
-      <p class="kicker">PROVISION / NEW ENDPOINT</p>
-      <h2>Connect a device</h2>
-      <p class="modal-copy">Generate a one-time token, then install the lightweight agent on the remote machine.</p>
-      <input id="admin-key-input" class="admin-key-input" type="password" placeholder="Admin API key" autocomplete="off">
-      <button id="generate-token-button" class="primary-button">Generate agent token</button>
-      <div id="token-result" class="token-result hidden"></div>
-      <div class="platform-tabs">
-        <button data-platform="windows" class="platform-tab active">Windows</button>
-        <button data-platform="mac" class="platform-tab">macOS</button>
-        <button data-platform="linux" class="platform-tab">Linux</button>
-      </div>
-      <div id="install-instructions" class="install-instructions">Generate a token to show install instructions.</div>
-      <button id="download-agent-button" class="ghost-button" disabled>Download agent</button>
-    </div>
-  </div>
-
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

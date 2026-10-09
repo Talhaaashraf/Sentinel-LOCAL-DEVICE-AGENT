@@ -1,14 +1,9 @@
-"""Groq-backed technician with a clean failure boundary for local-only mode."""
+"""One-shot AI technician (explain a snapshot, explain logs, chat) on the configured LLM provider."""
 
 import json
 import logging
-import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+from .llm import LLMModelError, LLMUnavailableError, get_provider
 
 DIAGNOSIS_SYSTEM_PROMPT = (
     "You are an experienced IT help desk technician analyzing a device's health data. "
@@ -27,47 +22,24 @@ CHAT_SYSTEM_PROMPT = DIAGNOSIS_SYSTEM_PROMPT + " Return valid JSON with plain_ex
 
 logger = logging.getLogger(__name__)
 
-
-class AIUnavailableError(RuntimeError):
-    pass
-
-
-class AIModelUnavailableError(AIUnavailableError):
-    """Raised when Groq rejects the configured model or request."""
-
-    public_error = "AI model unavailable, please check GROQ_MODEL in .env"
+# Kept under their historical names so callers did not have to change.
+AIUnavailableError = LLMUnavailableError
+AIModelUnavailableError = LLMModelError
 
 
-def _client():
-    key = os.getenv("GROQ_API_KEY", "").strip()
-    if not key:
-        raise AIUnavailableError("AI technician unavailable: GROQ_API_KEY is not configured")
+def ai_status():
     try:
-        from groq import Groq
-        return Groq(api_key=key)
-    except Exception as error:
-        raise AIUnavailableError(f"AI technician unavailable: {error}") from error
+        return get_provider().status()
+    except LLMUnavailableError as error:
+        return {"available": False, "provider": "unknown", "model": None, "message": str(error)}
 
 
 def is_ai_available():
-    return bool(os.getenv("GROQ_API_KEY", "").strip())
+    return bool(ai_status().get("available"))
 
 
-def _completion(messages, structured=False):
-    kwargs = {"model": GROQ_MODEL, "messages": messages, "temperature": 0.2}
-    if structured:
-        kwargs["response_format"] = {"type": "json_object"}
-    try:
-        response = _client().chat.completions.create(**kwargs)
-        return response.choices[0].message.content
-    except Exception as error:
-        status_code = getattr(error, "status_code", None)
-        error_name = type(error).__name__
-        if error_name == "NotFoundError" or (status_code is not None and 400 <= status_code < 500):
-            logger.exception("Groq rejected model %s with a client error", GROQ_MODEL)
-            raise AIModelUnavailableError(AIModelUnavailableError.public_error) from error
-        logger.exception("Groq request failed for model %s", GROQ_MODEL)
-        raise AIUnavailableError("AI technician is temporarily unavailable") from error
+def _completion(messages):
+    return get_provider().chat(messages, json_mode=True)["content"]
 
 
 def _parse_diagnosis(raw):
@@ -88,32 +60,26 @@ def _parse_diagnosis(raw):
         "summary": str(result.get("summary", "No summary returned.")),
         "root_cause": str(result.get("root_cause", "Unknown")),
         "severity": str(result.get("severity", "medium")),
-        "steps": list(result.get("steps", [])),
+        "steps": [str(step) for step in result.get("steps", [])],
         "suggested_actions": list(result.get("suggested_actions", [])),
     }
 
 
 def diagnose(report, alert_history):
     schema_hint = " Use this schema: {summary, root_cause, severity, steps, suggested_actions}."
-    raw = _completion(
-        [
-            {"role": "system", "content": DIAGNOSIS_SYSTEM_PROMPT + schema_hint},
-            {"role": "user", "content": json.dumps({"diagnostics": report, "recent_alerts": alert_history})},
-        ],
-        structured=True,
-    )
+    raw = _completion([
+        {"role": "system", "content": DIAGNOSIS_SYSTEM_PROMPT + schema_hint},
+        {"role": "user", "content": json.dumps({"diagnostics": report, "recent_alerts": alert_history}, default=str)},
+    ])
     return _parse_diagnosis(raw)
 
 
 def diagnose_logs(event_log_report):
     schema_hint = " Use this schema: {summary, root_cause, severity, steps, suggested_actions}."
-    raw = _completion(
-        [
-            {"role": "system", "content": LOG_SYSTEM_PROMPT + schema_hint},
-            {"role": "user", "content": json.dumps({"event_logs": event_log_report})},
-        ],
-        structured=True,
-    )
+    raw = _completion([
+        {"role": "system", "content": LOG_SYSTEM_PROMPT + schema_hint},
+        {"role": "user", "content": json.dumps({"event_logs": event_log_report}, default=str)},
+    ])
     return _parse_diagnosis(raw)
 
 
@@ -138,6 +104,6 @@ def _parse_chat_reply(raw):
 
 def chat(message, report, conversation_history):
     messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
-    messages.extend(conversation_history[-6:])
-    messages.append({"role": "user", "content": json.dumps({"question": message, "current_diagnostics": report})})
-    return _parse_chat_reply(_completion(messages, structured=True))
+    messages.extend({"role": item["role"], "content": str(item.get("content", ""))} for item in conversation_history[-6:])
+    messages.append({"role": "user", "content": json.dumps({"question": message, "current_diagnostics": report}, default=str)})
+    return _parse_chat_reply(_completion(messages))

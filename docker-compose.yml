@@ -1,0 +1,71 @@
+# Sentinel: dashboard + agentic AI troubleshooter + local Ollama brain.
+#   docker compose up -d --build      then open http://localhost:8000
+#
+# The base model is loaded from ./models/<model-name>/ (see models/migrate_model.py),
+# so no model download is needed. The self-improving model (sentinel-tech) is
+# created in the same Ollama by the app and its Modelfile is written to ./models/sentinel-tech/.
+name: sentinel
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 10m
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # One-shot: register the migrated base model from ./models with the ollama service.
+  model-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      BASE_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+    volumes:
+      - ./models:/models:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        dir="/models/$$(echo "$$BASE_MODEL" | tr ':/' '--')"
+        if ollama show "$$BASE_MODEL" >/dev/null 2>&1; then
+          echo "$$BASE_MODEL already loaded"
+        elif [ -f "$$dir/Modelfile" ]; then
+          echo "Creating $$BASE_MODEL from $$dir"
+          cd "$$dir" && ollama create "$$BASE_MODEL" -f Modelfile
+        else
+          echo "No migrated folder $$dir; pulling $$BASE_MODEL from the internet"
+          ollama pull "$$BASE_MODEL"
+        fi
+
+  sentinel:
+    build: .
+    image: sentinel-troubleshooter:latest
+    restart: unless-stopped
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      SENTINEL_DB_PATH: /data/sentinel.db
+      SENTINEL_MODELS_DIR: /app/models
+    volumes:
+      - sentinel_data:/data
+      - ./models:/app/models
+
+volumes:
+  ollama_data:
+  sentinel_data:

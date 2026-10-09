@@ -9,3 +9,8 @@ agent_build_work/
 dist/
 build/
 *.spec
+
+# Large model weights live in models/<name>/ but are not committed
+models/**/*.gguf
+models/sentinel-tech/training_data.jsonl
+.pytest_cache/

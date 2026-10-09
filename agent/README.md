@@ -1,6 +1,8 @@
 # Sentinel Monitor Agent
 
-The standalone `monitor_agent.py` works on Windows, macOS, and Linux. It reads `agent_config.json`, registers once with the central server, then sends read-only health snapshots at the configured interval.
+The standalone `monitor_agent.py` works on Windows, macOS, and Linux. It reads `agent_config.json`, registers once with the central server, sends health snapshots at the configured interval, and long-polls the server for troubleshooting tasks (diagnostics and operator-approved fixes) that it runs from the shared allow-listed registry in `toolkit/`.
+
+The easiest install is the one-line command from the dashboard's **Add Agent** tab; the manual steps below are for custom setups.
 
 Example configuration (`agent_config.json`):
 
@@ -11,9 +13,13 @@ Example configuration (`agent_config.json`):
   "nickname": "Office laptop",
   "interval_seconds": 10,
   "enable_performance_benchmark": true,
-  "performance_interval_seconds": 1800
+  "performance_interval_seconds": 1800,
+  "allow_remediation": true,
+  "max_risk": "high"
 }
 ```
+
+`allow_remediation` and `max_risk` (`read`, `low`, `medium` or `high`) are this device's own limit on what the server may run. The agent enforces them locally, whatever the server requests.
 
 Every report also includes a read-only security snapshot (firewall, antivirus, disk encryption, patch history, listening ports), refreshed every 5 minutes, and a read-only event log snapshot (recent Warning/Error/Critical entries from Windows Event Viewer, journald, or the macOS unified log), refreshed every 10 minutes. Performance is different: it briefly writes a temp file and burns CPU to measure real throughput, so it runs on its own longer cadence (`performance_interval_seconds`, default 1800s / 30 min, minimum 300s) and can be turned off entirely with `"enable_performance_benchmark": false`.
 

@@ -39,4 +39,11 @@ def has_valid_session(cookies):
     return hmac.compare_digest(cookies.get(SESSION_COOKIE_NAME, ""), session_token())
 
 
-PUBLIC_PATH_PREFIXES = ("/login", "/logout", "/static")
+# Agent-facing endpoints authenticate with their own agent/enrollment token, not the
+# dashboard cookie, so the session gate must let them through.
+PUBLIC_PATH_PREFIXES = (
+    "/login", "/logout", "/static",
+    "/install/",
+    "/api/agents/register", "/api/agents/report", "/api/agents/tasks/",
+    "/api/agents/bundle", "/api/agents/binary/",
+)

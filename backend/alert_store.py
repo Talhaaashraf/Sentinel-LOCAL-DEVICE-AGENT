@@ -2,9 +2,8 @@
 
 import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "alerts.db"
+from .config import DB_PATH
 
 
 def _connect():

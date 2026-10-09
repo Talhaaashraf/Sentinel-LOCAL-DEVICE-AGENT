@@ -1,4 +1,4 @@
-"""Cross-platform, read-only security posture checks for the standalone agent. Every check fails safe to 'unknown' rather than raising."""
+"""Cross-platform, read-only security posture checks. Every check fails safe to 'unknown' rather than raising."""
 
 import ctypes
 import json

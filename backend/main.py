@@ -1,32 +1,49 @@
 """FastAPI server for a local, Wazuh-inspired, AI-powered device health monitor."""
 
 import asyncio
+import io
+import json
 import logging
 import os
+import re
 import secrets
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from agent.toolkit import TOOLKIT_VERSION, describe_tools
+
 from .actions import run_action
+from .agent_brain import events as troubleshoot_events
+from .agent_brain import session_store
+from .agent_brain.executor import LOCAL_DEVICE_ID, resolve_target
+from .agent_brain.planner import apply_fix, auto_fix_max_risk, run_diagnosis
+from .agent_brain.playbooks import public_playbooks
+from .learning import model_builder
+from .learning import store as learning_store
+from .llm import get_provider as get_llm_provider
+from .ai_technician import AIModelUnavailableError, AIUnavailableError, ai_status, chat, diagnose, diagnose_logs, is_ai_available
 from .alert_store import add_alert, get_alerts
 from .auth import PUBLIC_PATH_PREFIXES, SESSION_COOKIE_NAME, auth_enabled, check_password, has_valid_session, session_token
 from .collectors import collect_report
-from .device_store import create_pending_token, delete_device, get_device_by_token, get_latest_report, list_devices, mark_offline_devices, register_device, save_report
+from .device_store import create_pending_token, delete_device, get_device_by_token, get_latest_report, is_valid_install_token, list_devices, mark_offline_devices, register_device, save_report
 from .event_logs import collect_event_log_report
-from .groq_agent import AIModelUnavailableError, AIUnavailableError, chat, diagnose, diagnose_logs, is_ai_available
 from .performance_checks import collect_performance_report
 from .rules_engine import evaluate_event_log_rules, evaluate_performance_rules, evaluate_rules, evaluate_security_rules, health_from_report
 from .security_checks import collect_security_report
+from .task_queue import claim_next_task, complete_task, list_tasks
 
 app = FastAPI(title="Sentinel Device Health Monitor")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+INSTALL_TEMPLATES_DIR = Path(__file__).resolve().parent / "install_templates"
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 logger = logging.getLogger(__name__)
@@ -36,6 +53,7 @@ connections = set()
 previous_report = None
 previous_reports = {}
 chat_sessions = {}
+background_tasks = set()
 latest_security_report = None
 latest_performance_report = None
 latest_event_log_report = None
@@ -119,6 +137,9 @@ async def start_monitor():
         logger.info("Dashboard login is enabled (DASHBOARD_PASSWORD/ADMIN_API_KEY set).")
     else:
         logger.warning("Dashboard login is disabled: set DASHBOARD_PASSWORD or ADMIN_API_KEY in .env to require sign-in.")
+    session_store.mark_interrupted_sessions()
+    status = ai_status()
+    logger.info("AI provider: %s / %s - %s", status.get("provider"), status.get("model"), status.get("message"))
     asyncio.create_task(monitor_loop())
     asyncio.create_task(offline_loop())
     asyncio.create_task(security_loop())
@@ -260,13 +281,13 @@ async def event_logs_endpoint():
 @app.post("/api/diagnostics/logs/diagnose")
 def diagnose_event_logs_endpoint():
     if not is_ai_available():
-        raise HTTPException(status_code=503, detail="AI technician unavailable: configure GROQ_API_KEY in .env")
+        raise HTTPException(status_code=503, detail=ai_status().get("message", "AI technician unavailable"))
     if latest_event_log_report is None:
         raise HTTPException(status_code=404, detail="No event log data collected yet")
     try:
         return diagnose_logs(latest_event_log_report)
     except (AIModelUnavailableError, AIUnavailableError) as error:
-        raise HTTPException(status_code=503, detail="AI technician is temporarily unavailable") from error
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.get("/api/alerts")
@@ -390,14 +411,14 @@ def revoke_agent(device_id: str, request: Request):
 @app.post("/api/agents/{device_id}/agent-diagnose")
 def diagnose_device(device_id: str):
     if not is_ai_available():
-        raise HTTPException(status_code=503, detail="AI technician unavailable: configure GROQ_API_KEY in .env")
+        raise HTTPException(status_code=503, detail=ai_status().get("message", "AI technician unavailable"))
     latest = get_latest_report(device_id)
     if not latest:
         raise HTTPException(status_code=404, detail="No diagnostics found for device")
     try:
         return diagnose(latest["diagnostics"], get_alerts(20, device_id))
     except (AIModelUnavailableError, AIUnavailableError) as error:
-        raise HTTPException(status_code=503, detail="AI technician is temporarily unavailable") from error
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.get("/api/agents/download/{platform}")
@@ -441,11 +462,11 @@ def download_agent(platform: str):
 @app.post("/api/agent/diagnose")
 def agent_diagnose(payload: dict):
     if not is_ai_available():
-        raise HTTPException(status_code=503, detail="AI technician unavailable: configure GROQ_API_KEY in .env")
+        raise HTTPException(status_code=503, detail=ai_status().get("message", "AI technician unavailable"))
     try:
         return diagnose(payload.get("diagnostics") or payload.get("report") or collect_report(), payload.get("alert_history") or get_alerts(20))
     except AIModelUnavailableError as error:
-        raise HTTPException(status_code=503, detail="AI technician is temporarily unavailable") from error
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except AIUnavailableError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -460,14 +481,13 @@ def agent_action(payload: dict):
 
 @app.get("/api/agent/chat")
 def chat_status():
-    available = is_ai_available()
-    return {"available": available, "message": "AI technician ready" if available else "AI technician unavailable"}
+    return ai_status()
 
 
 @app.post("/api/agent/chat")
 def agent_chat(payload: dict):
     if not is_ai_available():
-        raise HTTPException(status_code=503, detail="AI technician unavailable: configure GROQ_API_KEY in .env")
+        raise HTTPException(status_code=503, detail=ai_status().get("message", "AI technician unavailable"))
     message = str(payload.get("message", "")).strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
@@ -480,6 +500,266 @@ def agent_chat(payload: dict):
         chat_sessions[session_id] = history[-6:]
         return {"reply": reply, "session_id": session_id}
     except AIModelUnavailableError as error:
-        raise HTTPException(status_code=503, detail="AI technician is temporarily unavailable") from error
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except AIUnavailableError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.get("/api/ai/status")
+def ai_status_endpoint():
+    return {**ai_status(), "auto_fix_max_risk": auto_fix_max_risk() or "none", "learned_model": model_builder.version_info()}
+
+
+# ============================================================================
+# Agentic troubleshooting ("What's the issue?")
+# ============================================================================
+
+def _spawn(coroutine):
+    task = asyncio.create_task(coroutine)
+    background_tasks.add(task)
+    task.add_done_callback(background_tasks.discard)
+    return task
+
+
+@app.get("/api/troubleshoot/playbooks")
+def troubleshoot_playbooks():
+    return {"playbooks": public_playbooks()}
+
+
+@app.get("/api/troubleshoot/targets")
+def troubleshoot_targets():
+    local = resolve_target(LOCAL_DEVICE_ID)
+    targets = [{"device_id": local.device_id, "label": local.label, "os_type": local.os_type, "status": "online"}]
+    targets += [{"device_id": device["device_id"], "label": f"{device['nickname']} ({device['hostname']})", "os_type": device["os_type"], "status": device["status"]} for device in list_devices()]
+    return {"targets": targets}
+
+
+@app.get("/api/troubleshoot/tools")
+def troubleshoot_tools(device_id: str = LOCAL_DEVICE_ID):
+    target = resolve_target(device_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"os_type": target.os_type, "tools": describe_tools(target.os_type)}
+
+
+@app.post("/api/troubleshoot")
+async def start_troubleshoot(payload: dict):
+    issue = str(payload.get("issue", "")).strip()[:1000]
+    playbook_id = str(payload.get("playbook_id") or "").strip() or None
+    if not issue:
+        raise HTTPException(status_code=400, detail="Describe the issue first")
+    target = resolve_target(str(payload.get("device_id") or LOCAL_DEVICE_ID))
+    if target is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    status = await asyncio.to_thread(ai_status)
+    if not status.get("available"):
+        raise HTTPException(status_code=503, detail=status.get("message", "AI provider unavailable"))
+    session_id = session_store.create_session(target.device_id, target.label, target.os_type, issue, playbook_id)
+    _spawn(run_diagnosis(session_id))
+    return {"session_id": session_id, "status": "queued", "device": target.label}
+
+
+@app.get("/api/troubleshoot/sessions")
+def troubleshoot_sessions(device_id: str | None = None, limit: int = 30):
+    return {"sessions": session_store.list_sessions(device_id, max(1, min(limit, 200)))}
+
+
+@app.get("/api/troubleshoot/audit")
+def troubleshoot_audit(device_id: str | None = None, limit: int = 100):
+    return {"audit": session_store.list_audit(max(1, min(limit, 500)), device_id)}
+
+
+@app.get("/api/troubleshoot/{session_id}")
+def troubleshoot_session(session_id: str):
+    session = session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+@app.post("/api/troubleshoot/{session_id}/fixes/{index}/apply")
+async def troubleshoot_apply_fix(session_id: str, index: int):
+    session = session_store.get_session(session_id, include_steps=False)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    fixes = (session.get("report") or {}).get("proposed_fixes", [])
+    if not 0 <= index < len(fixes):
+        raise HTTPException(status_code=404, detail="Fix not found")
+    if session["status"] in ("queued", "running", "fixing", "verifying"):
+        raise HTTPException(status_code=409, detail="The agent is busy with this session; wait for it to finish")
+    if fixes[index]["status"] in ("running", "applied"):
+        raise HTTPException(status_code=409, detail="This fix was already applied")
+    _spawn(apply_fix(session_id, index, approved_by="operator"))
+    return {"accepted": True, "session_id": session_id, "index": index}
+
+
+@app.websocket("/ws/troubleshoot/{session_id}")
+async def troubleshoot_stream(websocket: WebSocket, session_id: str):
+    await websocket.accept()
+    if not has_valid_session(websocket.cookies):
+        await websocket.close(code=4401)
+        return
+    queue = troubleshoot_events.subscribe(session_id)
+    try:
+        session = session_store.get_session(session_id)
+        if not session:
+            await websocket.send_json({"type": "error", "message": "Session not found"})
+            return
+        await websocket.send_json({"type": "snapshot", "session": session})
+        while True:
+            await websocket.send_json(await queue.get())
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        troubleshoot_events.unsubscribe(session_id, queue)
+
+
+# ============================================================================
+# Remote task channel (agents long-poll with their bearer token)
+# ============================================================================
+
+TASK_RESULT_KEYS = ("tool_id", "risk", "args", "ok", "summary", "data", "changed", "rollback_hint", "duration_ms")
+TASK_RESULT_MAX_BYTES = 200_000
+
+
+@app.get("/api/agents/tasks/next")
+async def agent_next_task(request: Request, wait: int = 25):
+    device = authenticated_device(request)
+    for _ in range(max(1, min(wait, 30))):
+        task = await asyncio.to_thread(claim_next_task, device["device_id"])
+        if task:
+            return {"task": {key: task[key] for key in ("task_id", "tool_id", "args", "max_risk", "timeout_seconds")}}
+        await asyncio.sleep(1)
+    return {"task": None}
+
+
+@app.post("/api/agents/tasks/{task_id}/result")
+def agent_task_result(task_id: str, payload: dict, request: Request):
+    device = authenticated_device(request)
+    result = {key: payload.get(key) for key in TASK_RESULT_KEYS}
+    result["ok"] = bool(result["ok"])
+    result["summary"] = str(result["summary"] or "")[:2000]
+    if len(json.dumps(result.get("data"), default=str)) > TASK_RESULT_MAX_BYTES:
+        result["data"] = "(result data too large; truncated by server)"
+    if not complete_task(task_id, device["device_id"], result):
+        raise HTTPException(status_code=409, detail="Task is not running for this device (expired or unknown)")
+    return {"accepted": True}
+
+
+@app.get("/api/agents/{device_id}/tasks")
+def agent_tasks(device_id: str, limit: int = 50):
+    return {"tasks": list_tasks(device_id, max(1, min(limit, 200)))}
+
+
+# ============================================================================
+# One-line agent enrollment (install scripts + agent bundle)
+# ============================================================================
+
+TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{20,128}$")
+SERVER_URL_PATTERN = re.compile(r"^https?://[A-Za-z0-9.\-\[\]:]+(/[A-Za-z0-9._\-/]*)?$")
+INSTALL_SCRIPTS = {
+    "windows.ps1": True, "linux.sh": True, "macos.sh": True,
+    "uninstall-windows.ps1": False, "uninstall-linux.sh": False, "uninstall-macos.sh": False,
+}
+BINARY_BUILDS = {"windows": ("windows", "DeviceHealthAgent.exe"), "linux": ("linux", "DeviceHealthAgent"), "mac": ("macos", "DeviceHealthAgent")}
+
+
+def _server_url(request, override=None):
+    for candidate in (override, os.getenv("SENTINEL_PUBLIC_URL", "")):
+        candidate = (candidate or "").strip().rstrip("/")
+        if candidate:
+            if not SERVER_URL_PATTERN.match(candidate):
+                raise HTTPException(status_code=400, detail="Invalid server URL")
+            return candidate
+    return str(request.base_url).rstrip("/")
+
+
+def _require_install_token(token):
+    if not TOKEN_PATTERN.match(token or "") or not is_valid_install_token(token):
+        raise HTTPException(status_code=401, detail="Invalid or expired enrollment token. Generate a new one in the dashboard.")
+
+
+@app.get("/install/{script_name}", include_in_schema=False)
+def install_script(script_name: str, request: Request, token: str = "", server: str = ""):
+    needs_token = INSTALL_SCRIPTS.get(script_name)
+    if needs_token is None:
+        raise HTTPException(status_code=404, detail="Unknown install script")
+    if needs_token:
+        _require_install_token(token)
+    text = (INSTALL_TEMPLATES_DIR / script_name).read_text(encoding="utf-8")
+    text = text.replace("__SERVER_URL__", _server_url(request, server)).replace("__TOKEN__", token if needs_token else "")
+    text = text.replace("\r\n", "\n")
+    if script_name.endswith(".ps1"):
+        text = text.replace("\n", "\r\n")
+    return PlainTextResponse(text, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/agents/bundle", include_in_schema=False)
+def agent_bundle(token: str = ""):
+    _require_install_token(token)
+    agent_dir = PROJECT_ROOT / "agent"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.write(agent_dir / "monitor_agent.py", "monitor_agent.py")
+        for path in sorted((agent_dir / "toolkit").glob("*.py")):
+            archive.write(path, f"toolkit/{path.name}")
+    headers = {"Content-Disposition": f'attachment; filename="sentinel-agent-{TOOLKIT_VERSION}.zip"', "Cache-Control": "no-store"}
+    return Response(buffer.getvalue(), media_type="application/zip", headers=headers)
+
+
+@app.get("/api/agents/binary/{platform}", include_in_schema=False)
+def agent_binary(platform: str, token: str = ""):
+    _require_install_token(token)
+    if platform not in BINARY_BUILDS:
+        raise HTTPException(status_code=404, detail="Unknown platform")
+    folder, filename = BINARY_BUILDS[platform]
+    path = PROJECT_ROOT / "agent_builds" / folder / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="No prebuilt binary; the installer will use the Python bundle")
+    return FileResponse(path, filename=filename, media_type="application/octet-stream")
+
+
+# ============================================================================
+# Self-improvement (learned cases and the sentinel-tech model)
+# ============================================================================
+
+@app.post("/api/troubleshoot/{session_id}/feedback")
+def troubleshoot_feedback(session_id: str, payload: dict):
+    session = session_store.get_session(session_id, include_steps=False)
+    if not session or not session.get("report"):
+        raise HTTPException(status_code=404, detail="No diagnosis to rate for this session")
+    if not learning_store.get_case(session_id):
+        learning_store.record_session(session)
+    learning_store.set_feedback(session_id, bool(payload.get("helpful")), str(payload.get("note") or ""), str(payload.get("corrected_root_cause") or ""))
+    rebuilt = model_builder.maybe_rebuild()
+    if rebuilt:
+        getattr(get_llm_provider(), "refresh", lambda: None)()
+    return {"case": learning_store.get_case(session_id), "model_rebuilt": bool(rebuilt)}
+
+
+@app.get("/api/learning/stats")
+def learning_stats():
+    return {**learning_store.stats(), "model": model_builder.version_info(), "rebuild_every": model_builder.rebuild_every(), "learned_model_name": model_builder.learned_model_name(), "base_model": model_builder.base_model_name()}
+
+
+@app.get("/api/learning/cases")
+def learning_cases(limit: int = 50):
+    return {"cases": learning_store.list_cases(max(1, min(limit, 500)))}
+
+
+@app.get("/api/learning/lessons")
+def learning_lessons():
+    return {"lessons": model_builder.lessons(learning_store.list_cases(5000))}
+
+
+@app.post("/api/learning/rebuild")
+async def learning_rebuild():
+    info = await asyncio.to_thread(model_builder.build, "manual")
+    getattr(get_llm_provider(), "refresh", lambda: None)()
+    return info
+
+
+@app.get("/api/learning/dataset", include_in_schema=False)
+def learning_dataset():
+    data = model_builder.export_training_data(learning_store.list_cases(5000))
+    return Response(data, media_type="application/jsonl", headers={"Content-Disposition": 'attachment; filename="sentinel_training_data.jsonl"'})
